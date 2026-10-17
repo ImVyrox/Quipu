@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Quipu</string>
+    <string name="nav_tasks">Tareas</string>
+    <string name="nav_finance">Finanzas</string>
+    <string name="nav_summary">Resumen</string>
+</resources>

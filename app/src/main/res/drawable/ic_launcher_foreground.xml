@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quipu: cuerda principal con cuerdas colgantes y nudos (registro andino de cuentas). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Cuerda principal -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M31,36 L77,36"
+        android:strokeColor="@color/icon_foreground"
+        android:strokeLineCap="round"
+        android:strokeWidth="3.4" />
+
+    <!-- Cuerdas colgantes -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M36,36 L36,62 M45,36 L45,74 M54,36 L54,56 M63,36 L63,70 M72,36 L72,50"
+        android:strokeColor="@color/icon_foreground"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.6" />
+
+    <!-- Nudos -->
+    <path
+        android:fillColor="@color/icon_foreground"
+        android:pathData="M33.4,48 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z
+                          M42.4,47 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z
+                          M42.4,61 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z
+                          M51.4,45 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z
+                          M60.4,54 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z
+                          M60.4,64 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z
+                          M69.4,44 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z" />
+</vector>
