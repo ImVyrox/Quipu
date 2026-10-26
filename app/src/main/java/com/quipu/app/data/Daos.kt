@@ -12,6 +12,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks")
     fun observeAll(): Flow<List<TaskEntity>>
 
+    @Query("SELECT * FROM tasks")
+    suspend fun getAll(): List<TaskEntity>
+
     @Query("SELECT * FROM tasks WHERE id = :id")
     suspend fun getById(id: Long): TaskEntity?
 
@@ -45,6 +48,9 @@ interface DebtDao {
     @Query("SELECT * FROM debts")
     fun observeAll(): Flow<List<DebtEntity>>
 
+    @Query("SELECT * FROM debts")
+    suspend fun getAll(): List<DebtEntity>
+
     @Query("SELECT * FROM debts WHERE id = :id")
     suspend fun getById(id: Long): DebtEntity?
 
@@ -68,4 +74,31 @@ interface DebtDao {
 
     @Query("DELETE FROM debts WHERE isDemo = 1")
     suspend fun deleteDemo()
+}
+
+@Dao
+interface PaymentDao {
+    @Query("SELECT * FROM debt_payments ORDER BY epochDay, id")
+    fun observeAll(): Flow<List<PaymentEntity>>
+
+    @Query("SELECT * FROM debt_payments ORDER BY epochDay, id")
+    suspend fun getAll(): List<PaymentEntity>
+
+    @Query("SELECT * FROM debt_payments WHERE id = :id")
+    suspend fun getById(id: Long): PaymentEntity?
+
+    @Query("SELECT COALESCE(SUM(amountMinor), 0) FROM debt_payments WHERE debtId = :debtId")
+    suspend fun paidFor(debtId: Long): Long
+
+    @Insert
+    suspend fun insert(payment: PaymentEntity): Long
+
+    @Query("DELETE FROM debt_payments WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM debt_payments WHERE debtId = :debtId")
+    suspend fun deleteForDebt(debtId: Long)
+
+    @Query("DELETE FROM debt_payments WHERE debtId IN (SELECT id FROM debts WHERE isDemo = 1)")
+    suspend fun deleteForDemoDebts()
 }

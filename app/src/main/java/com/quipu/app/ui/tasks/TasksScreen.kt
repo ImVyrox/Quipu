@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -80,6 +81,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun TasksScreen(
     snackbarHostState: SnackbarHostState,
+    onOpenSettings: () -> Unit,
     viewModel: TasksViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -101,7 +103,16 @@ fun TasksScreen(
     var deletingId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Tareas") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Tareas") },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Ajustes")
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = {
                 editingId = null

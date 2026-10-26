@@ -43,6 +43,19 @@ data class DebtEntity(
     val isDemo: Boolean = false,
 )
 
+/** Abono (pago parcial) de un registro de [DebtEntity]. Se borra junto con su registro. */
+@Entity(
+    tableName = "debt_payments",
+    indices = [Index(value = ["debtId"])],
+)
+data class PaymentEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val debtId: Long,
+    /** Importe en centavos. */
+    val amountMinor: Long,
+    val epochDay: Long,
+)
+
 class Converters {
     @TypeConverter
     fun debtTypeToString(value: DebtType): String = value.name

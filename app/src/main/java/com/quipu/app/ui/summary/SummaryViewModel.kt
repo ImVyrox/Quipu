@@ -16,8 +16,6 @@ data class SummaryUiState(
     val loaded: Boolean = false,
     val summary: FinanceSummary = FinanceCalculator.summarize(emptyList()),
     val currency: AppCurrency = AppCurrencies.default,
-    /** Cantidad de registros de demostración presentes. */
-    val demoCount: Int = 0,
 )
 
 class SummaryViewModel(application: Application) : BaseViewModel(application) {
@@ -25,26 +23,11 @@ class SummaryViewModel(application: Application) : BaseViewModel(application) {
     val state: StateFlow<SummaryUiState> = combine(
         repository.observeDebts(),
         repository.settings.currency,
-        repository.observeDemoCount(),
-    ) { debts, currency, demoCount ->
+    ) { debts, currency ->
         SummaryUiState(
             loaded = true,
             summary = FinanceCalculator.summarize(debts),
             currency = currency,
-            demoCount = demoCount,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SummaryUiState())
-
-    fun setCurrency(currency: AppCurrency) {
-        repository.settings.setCurrency(currency)
-        say("Moneda cambiada a ${currency.code}")
-    }
-
-    fun loadDemoData() {
-        launchAction("Datos de demostración cargados") { repository.loadDemoData() }
-    }
-
-    fun removeDemoData() {
-        launchAction("Datos de demostración eliminados") { repository.removeDemoData() }
-    }
 }

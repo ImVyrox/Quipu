@@ -58,10 +58,10 @@ import com.quipu.app.ui.theme.QuipuColors
 @Composable
 fun SummaryScreen(
     snackbarHostState: SnackbarHostState,
+    onOpenSettings: () -> Unit,
     viewModel: SummaryViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
@@ -77,7 +77,7 @@ fun SummaryScreen(
             TopAppBar(
                 title = { Text("Resumen") },
                 actions = {
-                    IconButton(onClick = { settingsOpen = true }) {
+                    IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Ajustes")
                     }
                 },
@@ -188,17 +188,6 @@ fun SummaryScreen(
             }
         }
     }
-
-    if (settingsOpen) {
-        SettingsSheet(
-            currency = currency,
-            demoCount = state.demoCount,
-            onCurrency = viewModel::setCurrency,
-            onLoadDemo = viewModel::loadDemoData,
-            onRemoveDemo = viewModel::removeDemoData,
-            onDismiss = { settingsOpen = false },
-        )
-    }
 }
 
 private fun signed(minor: Long, currency: AppCurrency): String =
@@ -278,73 +267,5 @@ private fun PersonRow(person: PersonBalance, currency: AppCurrency) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun SettingsSheet(
-    currency: AppCurrency,
-    demoCount: Int,
-    onCurrency: (AppCurrency) -> Unit,
-    onLoadDemo: () -> Unit,
-    onRemoveDemo: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    FormSheet(title = "Ajustes", onDismiss = onDismiss) {
-        Text("Moneda", style = MaterialTheme.typography.titleSmall)
-        Text(
-            "Cambiar la moneda solo modifica el símbolo con que se muestran los importes. No convierte los montos guardados.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Column {
-            AppCurrencies.all.forEach { option ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .clickable(role = Role.RadioButton) { onCurrency(option) },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = option.code == currency.code, onClick = null)
-                    Text(
-                        text = "${option.code} · ${option.name} (${option.symbol})",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(start = 12.dp),
-                    )
-                }
-            }
-        }
-
-        HorizontalDivider()
-
-        Text("Datos de demostración", style = MaterialTheme.typography.titleSmall)
-        Text(
-            if (demoCount == 0) {
-                "Carga unos pocos ejemplos para ver cómo funciona la app. Se pueden eliminar en un toque sin afectar tus datos reales."
-            } else {
-                "Hay $demoCount registros de ejemplo en la app. Eliminarlos no afecta tus datos reales."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (demoCount == 0) {
-            OutlinedButton(
-                onClick = onLoadDemo,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            ) { Text("Cargar datos de demostración") }
-        } else {
-            Button(
-                onClick = onRemoveDemo,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            ) { Text("Eliminar datos de demostración") }
-        }
-
-        Text(
-            "Quipu guarda todo solo en este teléfono y no usa Internet. Si desinstalas la app, los datos se pierden.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp),
-        )
     }
 }

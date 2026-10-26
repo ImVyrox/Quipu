@@ -1,5 +1,6 @@
 package com.quipu.app.data
 
+import androidx.room.withTransaction
 import com.quipu.app.domain.DebtDraft
 import com.quipu.app.domain.DebtItem
 import com.quipu.app.domain.DebtStatus
@@ -18,6 +19,7 @@ class QuipuRepository(
 ) {
     private val taskDao = database.taskDao()
     private val debtDao = database.debtDao()
+    private val paymentDao = database.paymentDao()
 
     // ---- Tareas ----
 
@@ -74,7 +76,17 @@ class QuipuRepository(
     // ---- Préstamos y deudas ----
 
     fun observeDebts(): Flow<List<DebtItem>> =
-        debtDao.observeAll().map { list -> list.map { it.toDomain() } }
+        combine(debtDao.observeAll(), paymentDao.observeAll()) { debts, payments -> withPayments(debts, payments) }
+
+    private fun withPayments(debts: List<DebtEntity>, payments: List<PaymentEntity>): List<DebtItem> {
+        val byDebt = payments.groupBy({ it.debtId }, { it.toDomain() })
+        return debts.map { it.toDomain(byDebt[it.id].orEmpty()) }
+    }
+
+    /** Foto actual de tareas y registros (para calcular recordatorios fuera de la interfaz). */
+    suspend fun snapshot(): Pair<List<TaskItem>, List<DebtItem>> = database.withTransaction {
+        taskDao.getAll().map { it.toDomain() } to withPayments(debtDao.getAll(), paymentDao.getAll())
+    }
 
     suspend fun saveDebt(draft: DebtDraft) {
         val displayName = PersonKey.displayName(draft.personName)
@@ -94,18 +106,24 @@ class QuipuRepository(
                 ),
             )
         } else {
-            val existing = debtDao.getById(draft.id) ?: return
-            debtDao.update(
-                existing.copy(
-                    type = draft.type,
-                    personName = displayName,
-                    personKey = key,
-                    amountMinor = draft.amountMinor,
-                    recordEpochDay = draft.recordDate.toEpochDay(),
-                    dueEpochDay = draft.dueDate?.toEpochDay(),
-                    note = draft.note.trim(),
-                ),
-            )
+            database.withTransaction {
+                val existing = debtDao.getById(draft.id) ?: return@withTransaction
+                debtDao.update(
+                    existing.copy(
+                        type = draft.type,
+                        personName = displayName,
+                        personKey = key,
+                        amountMinor = draft.amountMinor,
+                        recordEpochDay = draft.recordDate.toEpochDay(),
+                        dueEpochDay = draft.dueDate?.toEpochDay(),
+                        note = draft.note.trim(),
+                    ),
+                )
+                // Si al bajar el importe los abonos ya lo cubren, el registro queda saldado.
+                if (existing.status == DebtStatus.PENDING && paymentDao.paidFor(draft.id) >= draft.amountMinor) {
+                    debtDao.setStatus(draft.id, DebtStatus.SETTLED, LocalDate.now().toEpochDay())
+                }
+            }
         }
     }
 
@@ -118,7 +136,34 @@ class QuipuRepository(
         }
     }
 
-    suspend fun deleteDebt(id: Long) = debtDao.deleteById(id)
+    suspend fun deleteDebt(id: Long) = database.withTransaction {
+        paymentDao.deleteForDebt(id)
+        debtDao.deleteById(id)
+    }
+
+    /**
+     * Registra un abono en un registro pendiente. Si con él se cubre todo el importe,
+     * el registro pasa a pagado/cobrado con la fecha del abono. Devuelve true en ese caso.
+     */
+    suspend fun addPayment(debtId: Long, amountMinor: Long, date: LocalDate): Boolean =
+        database.withTransaction {
+            val debt = debtDao.getById(debtId)
+            require(debt != null && debt.status == DebtStatus.PENDING) { "El registro no está pendiente" }
+            val paid = paymentDao.paidFor(debtId)
+            require(amountMinor > 0 && paid + amountMinor <= debt.amountMinor) { "Abono fuera de rango" }
+            paymentDao.insert(PaymentEntity(debtId = debtId, amountMinor = amountMinor, epochDay = date.toEpochDay()))
+            val settled = paid + amountMinor == debt.amountMinor
+            if (settled) debtDao.setStatus(debtId, DebtStatus.SETTLED, date.toEpochDay())
+            settled
+        }
+
+    /** Elimina un abono. Solo se permite en registros pendientes, para no contradecir un "pagado". */
+    suspend fun deletePayment(paymentId: Long) = database.withTransaction {
+        val payment = paymentDao.getById(paymentId) ?: return@withTransaction
+        val debt = debtDao.getById(payment.debtId)
+        require(debt == null || debt.status == DebtStatus.PENDING) { "El registro no está pendiente" }
+        paymentDao.deleteById(paymentId)
+    }
 
     // ---- Datos de demostración (opcionales) ----
 
@@ -131,8 +176,9 @@ class QuipuRepository(
         debtDao.insertAll(DemoData.debts(now.toLocalDate()))
     }
 
-    suspend fun removeDemoData() {
+    suspend fun removeDemoData() = database.withTransaction {
         taskDao.deleteDemo()
+        paymentDao.deleteForDemoDebts()
         debtDao.deleteDemo()
     }
 }

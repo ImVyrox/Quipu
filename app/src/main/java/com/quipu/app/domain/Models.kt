@@ -41,6 +41,26 @@ data class DebtItem(
     val note: String,
     val status: DebtStatus,
     val settledDate: LocalDate?,
+    /** Abonos (pagos parciales) registrados, del más antiguo al más reciente. */
+    val payments: List<DebtPayment> = emptyList(),
+) {
+    /** Suma de los abonos registrados. */
+    val paidMinor: Long get() = payments.sumOf { it.amountMinor }
+
+    /**
+     * Lo que falta por pagar/cobrar. Un registro pagado o cobrado ya no debe nada;
+     * uno pendiente debe su importe menos los abonos (nunca menos de cero).
+     */
+    val remainingMinor: Long
+        get() = if (status == DebtStatus.SETTLED) 0L else (amountMinor - paidMinor).coerceAtLeast(0L)
+}
+
+/** Pago parcial de un registro: por ejemplo, de un préstamo de 300 devuelven 200. */
+data class DebtPayment(
+    val id: Long,
+    val debtId: Long,
+    val amountMinor: Long,
+    val date: LocalDate,
 )
 
 /** Datos para crear o actualizar una tarea (id == 0 significa nueva). */

@@ -29,6 +29,13 @@ data class DebtFormErrors(
         get() = person != null || amount != null || recordDate != null || dueDate != null || note != null
 }
 
+data class PaymentFormErrors(
+    val amount: String? = null,
+    val date: String? = null,
+) {
+    val hasErrors: Boolean get() = amount != null || date != null
+}
+
 /** Validaciones de formularios. Devuelven mensajes en español listos para mostrar. */
 object Validators {
 
@@ -60,6 +67,8 @@ object Validators {
         recordDate: LocalDate?,
         dueDate: LocalDate?,
         note: String,
+        /** Lo ya abonado al editar un registro: el importe no puede quedar por debajo. */
+        paidMinor: Long = 0L,
     ): DebtFormErrors {
         val name = PersonKey.displayName(personName)
         val amountError = when {
@@ -70,6 +79,7 @@ object Validators {
                     minor == null -> "Importe no válido. Usa números, por ejemplo 150 o 150,50"
                     minor <= 0L -> "El importe debe ser mayor que cero"
                     minor > Money.MAX_MINOR -> "El importe es demasiado grande"
+                    minor < paidMinor -> "No puede ser menor que lo ya abonado"
                     else -> null
                 }
             }
@@ -88,6 +98,39 @@ object Validators {
                 null
             },
             note = if (note.length > Limits.NOTE_MAX) "Máximo ${Limits.NOTE_MAX} caracteres" else null,
+        )
+    }
+
+    /**
+     * Abono a un registro pendiente: debe ser mayor que cero, no superar lo que falta
+     * ([remainingMinor]) y no ser anterior a la fecha del registro.
+     */
+    fun validatePayment(
+        amountText: String,
+        remainingMinor: Long,
+        date: LocalDate?,
+        recordDate: LocalDate,
+        currency: AppCurrency,
+    ): PaymentFormErrors {
+        val amountError = when {
+            amountText.isBlank() -> "Escribe el importe del abono"
+            else -> {
+                val minor = Money.parseToMinor(amountText)
+                when {
+                    minor == null -> "Importe no válido. Usa números, por ejemplo 150 o 150,50"
+                    minor <= 0L -> "El abono debe ser mayor que cero"
+                    minor > remainingMinor -> "Supera lo que falta (${Money.format(remainingMinor, currency)})"
+                    else -> null
+                }
+            }
+        }
+        return PaymentFormErrors(
+            amount = amountError,
+            date = when {
+                date == null -> "Elige la fecha del abono"
+                date.isBefore(recordDate) -> "No puede ser anterior al registro"
+                else -> null
+            },
         )
     }
 }

@@ -1,6 +1,7 @@
 package com.quipu.app.data
 
 import com.quipu.app.domain.DebtItem
+import com.quipu.app.domain.DebtPayment
 import com.quipu.app.domain.TaskItem
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -21,7 +22,14 @@ fun TaskEntity.toDomain() = TaskItem(
     lastCompletedDate = lastCompletedEpochDay?.let { LocalDate.ofEpochDay(it) },
 )
 
-fun DebtEntity.toDomain() = DebtItem(
+fun PaymentEntity.toDomain() = DebtPayment(
+    id = id,
+    debtId = debtId,
+    amountMinor = amountMinor,
+    date = LocalDate.ofEpochDay(epochDay),
+)
+
+fun DebtEntity.toDomain(payments: List<DebtPayment> = emptyList()) = DebtItem(
     id = id,
     type = type,
     personName = personName,
@@ -32,4 +40,5 @@ fun DebtEntity.toDomain() = DebtItem(
     note = note,
     status = status,
     settledDate = settledEpochDay?.let { LocalDate.ofEpochDay(it) },
+    payments = payments,
 )

@@ -1,11 +1,14 @@
 package com.quipu.app.ui.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -13,7 +16,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.quipu.app.domain.AccentColor
+import com.quipu.app.domain.Appearance
+import com.quipu.app.domain.ThemeMode
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF0F766E),
@@ -75,6 +82,58 @@ private val DarkColors = darkColorScheme(
     surfaceContainerHighest = Color(0xFF223037),
 )
 
+/** Tonos de un color de acento en claro y en oscuro (paleta de Tailwind). */
+private data class AccentTones(
+    val light: Color,
+    val lightContainer: Color,
+    val onLightContainer: Color,
+    val dark: Color,
+    val onDark: Color,
+    val darkContainer: Color,
+    val onDarkContainer: Color,
+)
+
+private fun tonesOf(accent: AccentColor): AccentTones = when (accent) {
+    // El original: coincide con LightColors/DarkColors.
+    AccentColor.TEAL -> AccentTones(
+        Color(0xFF0F766E), Color(0xFFCCFBF1), Color(0xFF134E4A),
+        Color(0xFF5EEAD4), Color(0xFF042F2E), Color(0xFF115E59), Color(0xFFCCFBF1),
+    )
+    AccentColor.BLUE -> AccentTones(
+        Color(0xFF1D4ED8), Color(0xFFDBEAFE), Color(0xFF1E3A8A),
+        Color(0xFF93C5FD), Color(0xFF172554), Color(0xFF1E40AF), Color(0xFFDBEAFE),
+    )
+    AccentColor.PURPLE -> AccentTones(
+        Color(0xFF7E22CE), Color(0xFFF3E8FF), Color(0xFF581C87),
+        Color(0xFFD8B4FE), Color(0xFF3B0764), Color(0xFF6B21A8), Color(0xFFF3E8FF),
+    )
+    AccentColor.ORANGE -> AccentTones(
+        Color(0xFFC2410C), Color(0xFFFFEDD5), Color(0xFF7C2D12),
+        Color(0xFFFDBA74), Color(0xFF431407), Color(0xFF9A3412), Color(0xFFFFEDD5),
+    )
+    AccentColor.PINK -> AccentTones(
+        Color(0xFFBE185D), Color(0xFFFCE7F3), Color(0xFF831843),
+        Color(0xFFF9A8D4), Color(0xFF500724), Color(0xFF9D174D), Color(0xFFFCE7F3),
+    )
+}
+
+private fun ColorScheme.withAccent(accent: AccentColor, dark: Boolean): ColorScheme {
+    val t = tonesOf(accent)
+    return if (dark) {
+        copy(primary = t.dark, onPrimary = t.onDark, primaryContainer = t.darkContainer, onPrimaryContainer = t.onDarkContainer)
+    } else {
+        copy(primary = t.light, onPrimary = Color.White, primaryContainer = t.lightContainer, onPrimaryContainer = t.onLightContainer)
+    }
+}
+
+/** Si la interfaz debe ir en oscuro según el ajuste de tema. */
+@Composable
+fun isDarkTheme(appearance: Appearance): Boolean = when (appearance.themeMode) {
+    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    ThemeMode.LIGHT -> false
+    ThemeMode.DARK -> true
+}
+
 /** Colores semánticos que Material 3 no define: dinero a favor, dinero en contra y "próximo". */
 @Immutable
 data class ExtraColors(
@@ -123,10 +182,16 @@ private val AppShapes = Shapes(
 
 @Composable
 fun QuipuTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    appearance: Appearance = Appearance(),
+    darkTheme: Boolean = isDarkTheme(appearance),
     content: @Composable () -> Unit,
 ) {
-    val colors: ColorScheme = if (darkTheme) DarkColors else LightColors
+    val context = LocalContext.current
+    val colors: ColorScheme = when {
+        appearance.dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        else -> (if (darkTheme) DarkColors else LightColors).withAccent(appearance.accent, darkTheme)
+    }
     val extra = if (darkTheme) DarkExtra else LightExtra
     CompositionLocalProvider(LocalExtraColors provides extra) {
         MaterialTheme(

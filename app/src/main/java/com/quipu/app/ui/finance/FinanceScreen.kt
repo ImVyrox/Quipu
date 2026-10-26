@@ -7,6 +7,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,11 +28,14 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +70,7 @@ import com.quipu.app.domain.AppCurrency
 import com.quipu.app.domain.DebtDraft
 import com.quipu.app.domain.DebtFormErrors
 import com.quipu.app.domain.DebtItem
+import com.quipu.app.domain.DebtPayment
 import com.quipu.app.domain.DebtLogic
 import com.quipu.app.domain.DebtStatus
 import com.quipu.app.domain.DebtStatusFilter
@@ -73,6 +79,7 @@ import com.quipu.app.domain.DebtTypeFilter
 import com.quipu.app.domain.FinanceCalculator
 import com.quipu.app.domain.Limits
 import com.quipu.app.domain.Money
+import com.quipu.app.domain.PaymentFormErrors
 import com.quipu.app.domain.PersonBalance
 import com.quipu.app.domain.PersonGroup
 import com.quipu.app.domain.PersonKey
@@ -92,6 +99,7 @@ import java.time.LocalDate
 @Composable
 fun FinanceScreen(
     snackbarHostState: SnackbarHostState,
+    onOpenSettings: () -> Unit,
     viewModel: FinanceViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -104,6 +112,8 @@ fun FinanceScreen(
     var formOpen by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<Long?>(null) }
     var deletingId by rememberSaveable { mutableStateOf<Long?>(null) }
+    /** Registro al que se le está registrando un abono. */
+    var payingId by rememberSaveable { mutableStateOf<Long?>(null) }
     /** Persona abierta (clave normalizada); null = lista de personas. */
     var personKey by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -135,7 +145,14 @@ fun FinanceScreen(
                     },
                 )
             } else {
-                TopAppBar(title = { Text("Préstamos y deudas") })
+                TopAppBar(
+                    title = { Text("Préstamos y deudas") },
+                    actions = {
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "Ajustes")
+                        }
+                    },
+                )
             }
         },
         floatingActionButton = {
@@ -161,6 +178,7 @@ fun FinanceScreen(
                     onToggleSettled = { item -> viewModel.setSettled(item, item.status == DebtStatus.PENDING) },
                     onEdit = openEdit,
                     onDelete = { deletingId = it.id },
+                    onAddPayment = { payingId = it.id },
                 )
                 return@Column
             }
@@ -209,12 +227,27 @@ fun FinanceScreen(
             initialPerson = person?.displayName.orEmpty(),
             knownPeople = state.knownPeople,
             currency = state.currency,
+            onDeletePayment = viewModel::deletePayment,
             onDismiss = { formOpen = false },
             onSave = { draft ->
                 viewModel.save(draft)
                 formOpen = false
             },
         )
+    }
+
+    payingId?.let { id ->
+        state.all.firstOrNull { it.id == id && it.status == DebtStatus.PENDING }?.let { item ->
+            PaymentDialog(
+                item = item,
+                currency = state.currency,
+                onDismiss = { payingId = null },
+                onSave = { minor, date ->
+                    viewModel.addPayment(item, minor, date)
+                    payingId = null
+                },
+            )
+        }
     }
 
     deletingId?.let { id ->
@@ -336,6 +369,7 @@ private fun PersonDetail(
     onToggleSettled: (DebtItem) -> Unit,
     onEdit: (DebtItem) -> Unit,
     onDelete: (DebtItem) -> Unit,
+    onAddPayment: (DebtItem) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     LazyColumn(
@@ -381,6 +415,7 @@ private fun PersonDetail(
                     onToggleSettled = { onToggleSettled(item) },
                     onEdit = { onEdit(item) },
                     onDelete = { onDelete(item) },
+                    onAddPayment = { onAddPayment(item) },
                 )
             }
         }
@@ -480,6 +515,7 @@ private fun DebtFilterBar(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DebtCard(
     item: DebtItem,
@@ -488,6 +524,7 @@ private fun DebtCard(
     onToggleSettled: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onAddPayment: () -> Unit,
 ) {
     val extra = QuipuColors.extra
     val scheme = MaterialTheme.colorScheme
@@ -534,7 +571,8 @@ private fun DebtCard(
                     }
                 }
                 Text(
-                    text = sign + Money.format(item.amountMinor, currency),
+                    // Con abonos, lo importante es lo que falta; el total va en la línea de abonos.
+                    text = sign + Money.format(if (!settled && item.paidMinor > 0) item.remainingMinor else item.amountMinor, currency),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = if (settled) scheme.onSurfaceVariant else accent,
@@ -550,6 +588,17 @@ private fun DebtCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            if (item.paidMinor > 0) {
+                Text(
+                    text = buildString {
+                        append("Abonado ").append(Money.format(item.paidMinor, currency))
+                        append(" de ").append(Money.format(item.amountMinor, currency))
+                        if (!settled) append("  ·  Falta ").append(Money.format(item.remainingMinor, currency))
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
             val dates = buildString {
                 append("Registro: ").append(Formats.date(item.recordDate))
                 if (item.dueDate != null) append("  ·  Vence: ").append(Formats.date(item.dueDate))
@@ -562,11 +611,14 @@ private fun DebtCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (overdue) scheme.error else scheme.onSurfaceVariant,
             )
-            Row(
+            // FlowRow: en pantallas angostas los botones pasan a una segunda línea.
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End,
             ) {
+                if (!settled) {
+                    TextButton(onClick = onAddPayment) { Text("Registrar abono") }
+                }
                 TextButton(onClick = onToggleSettled) {
                     Text(if (settled) "Volver a pendiente" else settleLabel)
                 }
@@ -588,6 +640,7 @@ private fun DebtFormSheet(
     initialPerson: String,
     knownPeople: List<String>,
     currency: AppCurrency,
+    onDeletePayment: (Long) -> Unit,
     onDismiss: () -> Unit,
     onSave: (DebtDraft) -> Unit,
 ) {
@@ -603,12 +656,13 @@ private fun DebtFormSheet(
     var dueDay by rememberSaveable { mutableStateOf<Long?>(initial?.dueDate?.toEpochDay()) }
     var note by rememberSaveable { mutableStateOf(initial?.note ?: "") }
     var submitted by rememberSaveable { mutableStateOf(false) }
+    var deletingPaymentId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val type = DebtType.valueOf(typeName)
     val recordDate = recordDay?.let { LocalDate.ofEpochDay(it) }
     val dueDate = dueDay?.let { LocalDate.ofEpochDay(it) }
     val errors = if (submitted) {
-        Validators.validateDebt(person, amountText, recordDate, dueDate, note)
+        Validators.validateDebt(person, amountText, recordDate, dueDate, note, initial?.paidMinor ?: 0L)
     } else {
         DebtFormErrors()
     }
@@ -723,11 +777,19 @@ private fun DebtFormSheet(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        if (initial != null && initial.payments.isNotEmpty()) {
+            PaymentHistory(
+                item = initial,
+                currency = currency,
+                onDelete = { deletingPaymentId = it.id },
+            )
+        }
+
         FormActions(
             onCancel = onDismiss,
             onSave = {
                 submitted = true
-                val result = Validators.validateDebt(person, amountText, recordDate, dueDate, note)
+                val result = Validators.validateDebt(person, amountText, recordDate, dueDate, note, initial?.paidMinor ?: 0L)
                 if (!result.hasErrors) {
                     onSave(
                         DebtDraft(
@@ -744,4 +806,116 @@ private fun DebtFormSheet(
             },
         )
     }
+
+    deletingPaymentId?.let { id ->
+        initial?.payments?.firstOrNull { it.id == id }?.let { payment ->
+            ConfirmDeleteDialog(
+                title = "¿Eliminar abono?",
+                message = "Se eliminará el abono de ${Money.format(payment.amountMinor, currency)} del " +
+                    "${Formats.date(payment.date)}. Lo que falta volverá a aumentar.",
+                onConfirm = {
+                    onDeletePayment(id)
+                    deletingPaymentId = null
+                },
+                onDismiss = { deletingPaymentId = null },
+            )
+        }
+    }
+}
+
+/** Lista de abonos dentro del formulario de edición. Solo se pueden borrar si el registro sigue pendiente. */
+@Composable
+private fun PaymentHistory(item: DebtItem, currency: AppCurrency, onDelete: (DebtPayment) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val pending = item.status == DebtStatus.PENDING
+    HorizontalDivider()
+    Text("Abonos", style = MaterialTheme.typography.titleSmall)
+    item.payments.forEach { payment ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = Formats.date(payment.date),
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Text(Money.format(payment.amountMinor, currency), style = MaterialTheme.typography.bodyMedium)
+            if (pending) {
+                IconButton(onClick = { onDelete(payment) }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Eliminar abono del ${Formats.date(payment.date)}")
+                }
+            }
+        }
+    }
+    Text(
+        text = buildString {
+            append("Total abonado: ").append(Money.format(item.paidMinor, currency))
+            if (pending) {
+                append("  ·  Falta ").append(Money.format(item.remainingMinor, currency))
+            } else {
+                append(". Para corregir un abono, primero vuelve el registro a pendiente.")
+            }
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = scheme.onSurfaceVariant,
+    )
+    HorizontalDivider()
+}
+
+/** Diálogo para registrar un abono: importe (como máximo lo que falta) y fecha. */
+@Composable
+private fun PaymentDialog(
+    item: DebtItem,
+    currency: AppCurrency,
+    onDismiss: () -> Unit,
+    onSave: (Long, LocalDate) -> Unit,
+) {
+    var amountText by rememberSaveable { mutableStateOf("") }
+    var day by rememberSaveable { mutableStateOf<Long?>(LocalDate.now().toEpochDay()) }
+    var submitted by rememberSaveable { mutableStateOf(false) }
+    val date = day?.let { LocalDate.ofEpochDay(it) }
+    val errors = if (submitted) {
+        Validators.validatePayment(amountText, item.remainingMinor, date, item.recordDate, currency)
+    } else {
+        PaymentFormErrors()
+    }
+    val who = if (item.type == DebtType.OWED_TO_ME) "${item.personName} te devuelve" else "Le devuelves a ${item.personName}"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Registrar abono") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "$who una parte. Falta ${Money.format(item.remainingMinor, currency)} " +
+                        "de ${Money.format(item.amountMinor, currency)}.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { if (it.length <= 14) amountText = it },
+                    label = { Text("Importe del abono") },
+                    prefix = { Text(currency.symbol + " ") },
+                    singleLine = true,
+                    isError = errors.amount != null,
+                    supportingText = errors.amount?.let { { Text(it) } },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                DateField(
+                    label = "Fecha del abono",
+                    value = date,
+                    onValueChange = { day = it?.toEpochDay() },
+                    error = errors.date,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                submitted = true
+                val result = Validators.validatePayment(amountText, item.remainingMinor, date, item.recordDate, currency)
+                if (!result.hasErrors) onSave(Money.parseToMinor(amountText)!!, date!!)
+            }) { Text("Guardar") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
 }

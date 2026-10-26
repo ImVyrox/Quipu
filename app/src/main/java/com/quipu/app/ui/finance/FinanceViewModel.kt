@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class DebtFilters(
     val query: String = "",
@@ -83,6 +84,27 @@ class FinanceViewModel(application: Application) : BaseViewModel(application) {
             else -> "Marcado como pagado"
         }
         launchAction(message) { repository.setDebtSettled(item.id, settled) }
+    }
+
+    fun addPayment(item: DebtItem, amountMinor: Long, date: LocalDate) {
+        viewModelScope.launch {
+            try {
+                val settled = repository.addPayment(item.id, amountMinor, date)
+                say(
+                    when {
+                        !settled -> "Abono registrado"
+                        item.type == com.quipu.app.domain.DebtType.OWED_TO_ME -> "Abono registrado. Registro cobrado por completo"
+                        else -> "Abono registrado. Registro pagado por completo"
+                    },
+                )
+            } catch (e: Exception) {
+                say("No se pudo registrar el abono. Inténtalo de nuevo.")
+            }
+        }
+    }
+
+    fun deletePayment(id: Long) {
+        launchAction("Abono eliminado") { repository.deletePayment(id) }
     }
 
     fun delete(id: Long) {

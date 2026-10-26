@@ -25,6 +25,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.quipu.app.R
 import com.quipu.app.ui.finance.FinanceScreen
+import com.quipu.app.ui.settings.SettingsScreen
 import com.quipu.app.ui.summary.SummaryScreen
 import com.quipu.app.ui.tasks.TasksScreen
 
@@ -39,6 +40,9 @@ enum class Destination(
     Summary("summary", R.string.nav_summary, R.drawable.ic_nav_summary),
 }
 
+/** Pantalla de Ajustes: se abre desde el engranaje de cada pantalla, sin barra inferior. */
+private const val SETTINGS_ROUTE = "settings"
+
 @Composable
 fun QuipuRoot() {
     val navController = rememberNavController()
@@ -49,20 +53,22 @@ fun QuipuRoot() {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            NavigationBar {
-                Destination.entries.forEach { destination ->
-                    NavigationBarItem(
-                        selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true,
-                        onClick = {
-                            navController.navigate(destination.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(painterResource(destination.icon), contentDescription = null) },
-                        label = { Text(stringResource(destination.label)) },
-                    )
+            if (currentDestination?.route != SETTINGS_ROUTE) {
+                NavigationBar {
+                    Destination.entries.forEach { destination ->
+                        NavigationBarItem(
+                            selected = currentDestination?.hierarchy?.any { it.route == destination.route } == true,
+                            onClick = {
+                                navController.navigate(destination.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(painterResource(destination.icon), contentDescription = null) },
+                            label = { Text(stringResource(destination.label)) },
+                        )
+                    }
                 }
             }
         },
@@ -73,9 +79,13 @@ fun QuipuRoot() {
             startDestination = Destination.Tasks.route,
             modifier = Modifier.padding(padding),
         ) {
-            composable(Destination.Tasks.route) { TasksScreen(snackbarHostState) }
-            composable(Destination.Finance.route) { FinanceScreen(snackbarHostState) }
-            composable(Destination.Summary.route) { SummaryScreen(snackbarHostState) }
+            val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
+            composable(Destination.Tasks.route) { TasksScreen(snackbarHostState, onOpenSettings = openSettings) }
+            composable(Destination.Finance.route) { FinanceScreen(snackbarHostState, onOpenSettings = openSettings) }
+            composable(Destination.Summary.route) { SummaryScreen(snackbarHostState, onOpenSettings = openSettings) }
+            composable(SETTINGS_ROUTE) {
+                SettingsScreen(snackbarHostState, onBack = { navController.popBackStack() })
+            }
         }
     }
 }

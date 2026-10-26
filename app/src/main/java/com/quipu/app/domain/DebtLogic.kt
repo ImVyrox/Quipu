@@ -136,7 +136,10 @@ object DebtLogic {
 
 object FinanceCalculator {
 
-    /** Calcula todo a partir de los registros guardados; los finalizados no cuentan. */
+    /**
+     * Calcula todo a partir de los registros guardados; los finalizados no cuentan y
+     * de los pendientes solo cuenta lo que falta (importe menos abonos).
+     */
     fun summarize(items: List<DebtItem>): FinanceSummary {
         val pending = items.filter { it.status == DebtStatus.PENDING }
 
@@ -149,8 +152,8 @@ object FinanceCalculator {
             )
 
         return FinanceSummary(
-            totalOwedToMe = pending.filter { it.type == DebtType.OWED_TO_ME }.sumOf { it.amountMinor },
-            totalIOwe = pending.filter { it.type == DebtType.I_OWE }.sumOf { it.amountMinor },
+            totalOwedToMe = pending.filter { it.type == DebtType.OWED_TO_ME }.sumOf { it.remainingMinor },
+            totalIOwe = pending.filter { it.type == DebtType.I_OWE }.sumOf { it.remainingMinor },
             peopleCount = perPerson.size,
             pendingCount = pending.size,
             perPerson = perPerson,
@@ -158,16 +161,16 @@ object FinanceCalculator {
     }
 
     /**
-     * Saldo pendiente de una persona a partir de sus registros (los pagados/cobrados
-     * no cuentan). El nombre mostrado es el del registro más reciente entre [records].
+     * Saldo pendiente de una persona a partir de sus registros: lo que falta de cada
+     * pendiente (importe menos abonos); los pagados/cobrados no cuentan. El nombre mostrado es el del registro más reciente entre [records].
      */
     fun balanceOf(personKey: String, records: List<DebtItem>): PersonBalance {
         val pending = records.filter { it.status == DebtStatus.PENDING }
         return PersonBalance(
             personKey = personKey,
             displayName = latestName(records),
-            owedToMe = pending.filter { it.type == DebtType.OWED_TO_ME }.sumOf { it.amountMinor },
-            iOwe = pending.filter { it.type == DebtType.I_OWE }.sumOf { it.amountMinor },
+            owedToMe = pending.filter { it.type == DebtType.OWED_TO_ME }.sumOf { it.remainingMinor },
+            iOwe = pending.filter { it.type == DebtType.I_OWE }.sumOf { it.remainingMinor },
             pendingCount = pending.size,
         )
     }
