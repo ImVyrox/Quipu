@@ -11,7 +11,7 @@ import org.junit.Test
 class LedgerTest {
     private val today = LocalDate.of(2026, 10, 25)
     private val october = YearMonth.of(2026, 10)
-    private val goal = SavingsGoal(1, "Viaje", "BOB", targetMinor = 100_000)
+    private val goal = SavingsGoal(1, "Viaje", "BOB", targetMinor = 100_000, createdDate = LocalDate.of(2026, 1, 1))
 
     private fun m(
         id: Long,

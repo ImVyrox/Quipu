@@ -3,7 +3,8 @@
 Estado:
 - **Fase 1**: diseño y lógica de dominio pura con pruebas.
 - **Fase 2**: ingresos, gastos, saldo y dinero declarado, implementados (Room v4, pantalla **Dinero**).
-- **Pendiente**: objetivos de ahorro, pagos recurrentes y sus recordatorios.
+- **Fase 3**: objetivos de ahorro, implementados (Room v5).
+- **Pendiente**: pagos recurrentes y sus recordatorios.
 
 ## Principios
 
@@ -42,6 +43,18 @@ Pruebas: `IncomePlannerTest`, `LedgerTest`, `RecurringPlannerTest`, `MotivationT
 - `SAVING_DEPOSIT` resta del disponible y suma al objetivo. `SAVING_WITHDRAWAL` hace lo contrario. Ninguno de los dos es ingreso ni gasto externo (`PeriodTotals.income/expense` los excluyen y van en `savedNet`).
 - Una aportación no puede superar el disponible de esa moneda y un retiro no puede superar lo ahorrado. El traspaso y el objetivo deben ir en la misma moneda (`Ledger.validateTransfer`).
 
+### Política contable del ahorro (fase 3)
+- **Total = disponible + ahorrado**, por moneda (`Ledger.overview`).
+- **Aportación**: disponible −x, objetivo +x, total igual. No puede dejar el disponible en negativo y solo se admite en objetivos **activos**.
+- **Retiro**: objetivo −x, disponible +x, total igual. No puede superar lo ahorrado en ese objetivo. Se admite en objetivos en pausa o completados (para usar el dinero).
+- **Ahorro inicial** (`SAVING_OPENING`): dinero que ya estaba ahorrado fuera de Quipu. El usuario lo registra explícitamente, como mucho una vez por objetivo. Suma al objetivo y al total, pero no es ingreso ni sale del disponible.
+- **Saldos negativos**: el disponible nunca queda en negativo por ahorrar; sí puede quedar en negativo por gastos reales, porque refleja la realidad. Lo ahorrado en un objetivo nunca es negativo: tampoco al borrar movimientos (`Ledger.validateRemoval`).
+- **Eliminar un objetivo** registra un retiro de cierre por lo ahorrado (`Ledger.closingWithdrawal`). Su historial se conserva y queda de solo lectura.
+- **Completar** es una decisión del usuario: se puede completar sin llegar a la meta, y llegar a la meta no completa el objetivo de forma automática. Se pueden aportar importes por encima de la meta; el porcentaje se queda en 100 %.
+- **Sin errores de redondeo**: todo en centavos (`Long`), y el porcentaje se redondea hacia abajo (99,99 % se muestra como 99 %).
+- **Sin duplicados**: cada movimiento cuenta una vez por id. Además, el repositorio valida en una transacción con los datos guardados, así que dos registros seguidos no pueden saltarse los límites.
+- **Dinero real declarado**: se compara con el total (disponible + ahorros).
+
 ### Pagos recurrentes y suscripciones
 - Vencimiento mensual en `dayOfMonth` (1–31). Si el mes es más corto, vence su último día. Solo hay vencimientos entre `startDate` y `endDate`.
 - `confirm` devuelve `Created` (un gasto nuevo), `AlreadyPaid` (si el mes ya estaba pagado no se crea otro) o `NotDue`.
@@ -62,7 +75,9 @@ Pruebas: `IncomePlannerTest`, `LedgerTest`, `RecurringPlannerTest`, `MotivationT
 
 Hay índices únicos (`incomeSourceId`, `period`) y (`recurringPaymentId`, `period`). `declared_balances` guarda el dinero real que declara el usuario; no es un movimiento.
 
-**Pendiente (v5)**: `savings_goals` y `recurring_payments`, según la propuesta de abajo.
+**Room v5 (fase 3, aplicado)**: `savings_goals`, con `name`, `description`, `targetMinor`, `currencyCode`, `createdEpochDay`, `deadlineEpochDay`, `status` (ACTIVE, PAUSED o COMPLETED) y `completedEpochDay`. Lo acumulado no se guarda: sale de `movements`.
+
+**Pendiente**: `recurring_payments`, según la propuesta de abajo.
 
 ```
 income_sources

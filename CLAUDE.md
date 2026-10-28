@@ -44,17 +44,18 @@ app/src/main/java/com/quipu/app/
   data/                 Room: Entities.kt, Daos.kt, QuipuDatabase.kt (versión + migraciones),
                         Mappers.kt (entidad <-> dominio), QuipuRepository.kt, SettingsStore.kt
                         (SharedPreferences "quipu_settings" expuestas como StateFlow), DemoData.kt.
-                        Ingresos y gastos: MoneyEntities.kt, MoneyDaos.kt, MoneyRepository.kt.
+                        Ingresos, gastos y ahorros: MoneyEntities.kt, MoneyDaos.kt, MoneyRepository.kt.
   reminders/            QuipuNotifications (canal + publicar), ReminderEngine (alarma única del
                         próximo aviso), ReminderReceivers (ReminderReceiver, SystemEventsReceiver).
   ui/                   QuipuRoot (Scaffold + NavHost + NavigationBar), BaseViewModel, Formats,
                         theme/Theme.kt, components/Components.kt y una carpeta por pantalla:
-                        tasks/, money/ (Dinero: MoneyScreen, MoneyForms, MoneyViewModel), finance/
+                        tasks/, money/ (Dinero: MoneyScreen, MoneyForms, GoalsUi, MoneyViewModel), finance/
                         (préstamos), summary/, settings/ (Screen + ViewModel).
 app/src/test/java/com/quipu/app/          Pruebas unitarias JUnit 4 (domain/ y ui/Formats).
-app/src/androidTest/java/com/quipu/app/data/   Pruebas instrumentadas: MoneyRepositoryTest (Room) y
-                        MigrationTest (MigrationTestHelper con los esquemas como assets).
-app/schemas/com.quipu.app.data.QuipuDatabase/   Esquemas Room exportados: 1.json … 4.json.
+app/src/androidTest/java/com/quipu/app/data/   Pruebas instrumentadas: MoneyRepositoryTest y
+                        SavingsRepositoryTest (Room) y MigrationTest (MigrationTestHelper con los
+                        esquemas como assets).
+app/schemas/com.quipu.app.data.QuipuDatabase/   Esquemas Room exportados: 1.json … 5.json.
 docs/finanzas-personales.md   Diseño y reglas del módulo de finanzas personales.
 ```
 
@@ -108,8 +109,8 @@ Objetivo: interfaz **moderna, minimalista y consistente**, pensada para teléfon
 
 Los datos del usuario solo existen en su teléfono: `allowBackup="false"`, sin nube. **Perder datos es irreversible.**
 
-- Base de datos `quipu.db`, `QuipuDatabase` versión **4**, `exportSchema = true`, esquemas en `app/schemas/` (KSP `room.schemaLocation`). Tablas: `tasks`, `debts`, `debt_payments`, `movements`, `income_sources`, `declared_balances`.
-- Historial: v1 → v2 (`MIGRATION_1_2`: columnas `isDaily`, `lastCompletedEpochDay` en `tasks`); v2 → v3 (`MIGRATION_2_3`: tabla `debt_payments` + índice `index_debt_payments_debtId`); v3 → v4 (`MIGRATION_3_4`: tablas `movements`, `income_sources`, `declared_balances` y sus índices; el SQL se copió de `4.json`).
+- Base de datos `quipu.db`, `QuipuDatabase` versión **5**, `exportSchema = true`, esquemas en `app/schemas/` (KSP `room.schemaLocation`). Tablas: `tasks`, `debts`, `debt_payments`, `movements`, `income_sources`, `declared_balances`, `savings_goals`.
+- Historial: v1 → v2 (`MIGRATION_1_2`: columnas `isDaily`, `lastCompletedEpochDay` en `tasks`); v2 → v3 (`MIGRATION_2_3`: tabla `debt_payments` + índice `index_debt_payments_debtId`); v3 → v4 (`MIGRATION_3_4`: tablas `movements`, `income_sources`, `declared_balances` y sus índices; el SQL se copió de `4.json`); v4 → v5 (`MIGRATION_4_5`: tabla `savings_goals`).
 - Registra cada migración nueva en `QuipuDatabase.ALL_MIGRATIONS` y añade un caso a `MigrationTest` (`runMigrationsAndValidate` compara con el JSON exportado).
 - Índices únicos de `movements`: (`incomeSourceId`, `period`) —un ingreso fijo por fuente y mes— y (`recurringPaymentId`, `period`) —un pago recurrente por mes—. No los quites: evitan duplicados aunque falle la validación de la app.
 - Para cualquier cambio en una `@Entity`:
@@ -121,6 +122,7 @@ Los datos del usuario solo existen en su teléfono: `allowBackup="false"`, sin n
 - **Prohibido**: `fallbackToDestructiveMigration()`, borrar/renombrar tablas o columnas sin migración de copia, bajar la versión, o modificar una migración ya publicada.
 - Datos de demostración: siempre con `isDemo = true`; `removeDemoData()` (en ambos repositorios) borra solo esos (y sus abonos). Nunca mezcles datos demo con reales.
 - Finanzas personales: el saldo se calcula solo con movimientos no pendientes (`Ledger`); lo previsto y lo pendiente se muestran aparte. Cada movimiento guarda su moneda y nunca se suman monedas distintas (`CurrencyAmounts`). Los préstamos no afectan al saldo. No hay saldo inicial: el «dinero real declarado» (`declared_balances`) solo se compara, no crea movimientos. Una fuente con ingresos se archiva (`active = false`), no se borra. Ver `docs/finanzas-personales.md`.
+- Ahorros (política contable): total = disponible + ahorrado, por moneda. Aportar (`SAVING_DEPOSIT`) y retirar (`SAVING_WITHDRAWAL`) mueven dinero sin cambiar el total; una aportación no puede superar el disponible ni ir a un objetivo en pausa o completado, y un retiro no puede superar lo ahorrado. El ahorro inicial (`SAVING_OPENING`, uno por objetivo) suma al ahorro y al total sin ser ingreso. Lo acumulado **no se guarda**: se calcula con los movimientos (`Ledger.goalBalance`). Eliminar un objetivo registra antes un retiro de cierre (`Ledger.closingWithdrawal`) y su historial queda de solo lectura. Toda operación de ahorro se valida en `MoneyRepository` dentro de `withTransaction`.
 - Integridad de abonos: un abono no puede superar lo que falta; si cubre el total, el registro pasa a `SETTLED`; solo se borran abonos de registros pendientes; al borrar un registro se borran sus abonos en la misma transacción. Mantén estas reglas en `QuipuRepository` dentro de `withTransaction`.
 - Actualiza el README (sección «Privacidad y datos») cuando añadas una versión de la base de datos.
 
@@ -152,4 +154,10 @@ Antes de dar un cambio por terminado:
 
 - No cambies funcionalidades no pedidas. Si al revisar ves un problema, coméntalo en lugar de arreglarlo de paso.
 - Actualiza el README cuando cambie algo visible para el usuario, y `versionCode`/`versionName` solo cuando se pida una versión nueva.
+
+## Entregar el APK al teléfono del usuario
+
+- El usuario instala `app-debug.apk` en su teléfono (lo recibe por WhatsApp) y debe ver **«Actualizar»**, no una instalación nueva: así conserva sus datos (`allowBackup=false`, desinstalar los borra).
+- Para eso el APK debe tener el mismo `applicationId` (`com.quipu.app.debug`), un `versionCode` **mayor** que el instalado y la **misma firma**. La versión del teléfono está firmada con la clave de depuración cuyo certificado tiene SHA-256 `cb2bb615dc2cc934d5125bc1eb38cf7d32a8afd97d7f9c1e4ad07cd21b3dd8d1`. Antes de entregar, comprueba la firma con `~/Android/Sdk/build-tools/<versión>/apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk`; si no coincide, **no lo entregues** (Android diría «Conflicto con un paquete existente»).
+- Al terminar cada fase: sube `versionCode`, compila `assembleDebug`, verifica la firma y copia el APK a `app-debug.apk` en la raíz (versionado en git).
 - `app-debug.apk` en la raíz es un artefacto de compilación versionado en git (no está en `.gitignore`); no lo regeneres ni lo borres salvo que se pida.

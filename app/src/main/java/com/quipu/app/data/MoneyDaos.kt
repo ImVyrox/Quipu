@@ -20,6 +20,12 @@ interface MovementDao {
     @Query("SELECT * FROM movements WHERE incomeSourceId = :sourceId AND period = :period LIMIT 1")
     suspend fun findIncomeForPeriod(sourceId: Long, period: String): MovementEntity?
 
+    @Query("SELECT COUNT(*) FROM movements WHERE goalId = :goalId AND type = 'SAVING_OPENING'")
+    suspend fun countOpenings(goalId: Long): Int
+
+    @Query("SELECT * FROM movements WHERE goalId = :goalId")
+    suspend fun getForGoal(goalId: Long): List<MovementEntity>
+
     @Query("SELECT COUNT(*) FROM movements WHERE incomeSourceId = :sourceId")
     suspend fun countForSource(sourceId: Long): Int
 
@@ -76,4 +82,28 @@ interface DeclaredBalanceDao {
 
     @Query("DELETE FROM declared_balances WHERE currencyCode = :currencyCode")
     suspend fun deleteForCurrency(currencyCode: String)
+}
+
+@Dao
+interface SavingsGoalDao {
+    @Query("SELECT * FROM savings_goals ORDER BY id")
+    fun observeAll(): Flow<List<SavingsGoalEntity>>
+
+    @Query("SELECT * FROM savings_goals WHERE id = :id")
+    suspend fun getById(id: Long): SavingsGoalEntity?
+
+    @Insert
+    suspend fun insert(goal: SavingsGoalEntity): Long
+
+    @Update
+    suspend fun update(goal: SavingsGoalEntity)
+
+    @Query("DELETE FROM savings_goals WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("SELECT COUNT(*) FROM savings_goals WHERE isDemo = 1")
+    fun observeDemoCount(): Flow<Int>
+
+    @Query("DELETE FROM savings_goals WHERE isDemo = 1")
+    suspend fun deleteDemo()
 }

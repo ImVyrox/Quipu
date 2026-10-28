@@ -30,8 +30,13 @@ Hecha con **Kotlin + Jetpack Compose (Material 3) + Room**.
 - Un ingreso fijo se anota **una vez por mes**: cambiar de mes no lo duplica y no se puede anotar dos veces el mismo mes.
 - **Gastos** con importe, fecha y categoría (alimentación, transporte, estudios, suscripciones, salud u otros) y descripción opcional. Un gasto puede quedar **Por pagar** hasta que lo pagues.
 - **Historial** del más reciente al más antiguo, con filtros por mes (o todo), tipo y categoría. Eliminar pide confirmación.
-- **Saldo calculado**: ingresos recibidos menos gastos pagados. Los ingresos previstos, lo que está por cobrar y lo que está por pagar se muestran **aparte** y no cuentan en el saldo. Los préstamos y deudas tampoco cuentan.
+- **Saldo calculado (disponible)**: ingresos recibidos menos gastos pagados y menos lo apartado en ahorros. Los ingresos previstos, lo que está por cobrar y lo que está por pagar se muestran **aparte** y no cuentan en el saldo. Los préstamos y deudas tampoco cuentan.
 - **Dinero real declarado** (opcional): escribes cuánto tienes de verdad y Quipu lo compara con el saldo calculado. No crea movimientos ni hay un «saldo inicial» inventado.
+- **Objetivos de ahorro**: nombre, meta, fecha límite y descripción opcionales, progreso en % y lo que falta. Se pueden pausar, completar, reanudar, editar y eliminar (con confirmación), y cada uno tiene su historial.
+  - **Aportar** pasa dinero de tu disponible al objetivo y **retirar** lo devuelve: tu dinero total no cambia. No puedes aportar más de lo que tienes disponible ni retirar más de lo ahorrado; un objetivo en pausa o completado no admite aportaciones.
+  - **Ahorro inicial** (opcional y explícito): si ya tenías dinero guardado para esa meta fuera de Quipu, lo registras una vez. Suma al ahorro sin salir de tu disponible ni contar como ingreso.
+  - Al **eliminar** un objetivo, lo ahorrado vuelve a tu disponible y su historial se conserva.
+  - Arriba se ven el **disponible**, lo que tienes **en ahorros** y el **total**. El dinero real declarado se compara con el total.
 - **Monedas**: cada ingreso o gasto guarda su moneda. Las nuevas usan la moneda de Ajustes, pero puedes elegir otra. Los totales se muestran **por moneda**, sin sumar monedas distintas ni convertir.
 
 ### Préstamos y deudas
@@ -107,7 +112,7 @@ Probado en el emulador de Android Studio (teléfono mediano, Android API 37). En
   - `RECEIVE_BOOT_COMPLETED`: volver a programar los avisos tras reiniciar el teléfono.
 - Los datos se guardan solo en el teléfono, en una base de datos local (Room/SQLite).
 - `allowBackup=false`: los datos no se copian a la nube. **Si desinstalas la app, se pierden.**
-- Las actualizaciones de la app migran la base de datos sin borrar datos (la v2 añadió las tareas diarias, la v3 los abonos y la v4 los ingresos y gastos, conservando todo lo anterior).
+- Las actualizaciones de la app migran la base de datos sin borrar datos (la v2 añadió las tareas diarias, la v3 los abonos, la v4 los ingresos y gastos y la v5 los objetivos de ahorro, conservando todo lo anterior).
 
 ### Que los avisos lleguen en Xiaomi/Redmi (MIUI/HyperOS)
 

@@ -22,6 +22,9 @@ object Motivation {
     /** Hitos de progreso de un objetivo, de mayor a menor. */
     val MILESTONES = listOf(75, 50, 25)
 
+    /** Días durante los que se celebra un objetivo cumplido tras su último movimiento. */
+    const val GOAL_REACHED_DAYS = 7L
+
     private val GENERIC = listOf(
         "Cada movimiento que anotas te da una foto más clara de tu dinero.",
         "Pequeños ahorros constantes suman más de lo que parece.",
@@ -34,13 +37,21 @@ object Motivation {
         movements: List<Movement>,
         today: LocalDate,
     ): MotivationMessage {
-        val progress = goals.map { Ledger.goalProgress(it, movements) }
+        // Los objetivos en pausa no generan mensajes.
+        val progress = goals.filter { it.status != GoalStatus.PAUSED }.map { Ledger.goalProgress(it, movements) }
 
-        progress.filter { it.reached }.maxByOrNull { it.goal.id }?.let {
+        // Un objetivo cumplido se celebra solo los primeros días tras su último movimiento.
+        fun recentlyReached(p: GoalProgress): Boolean {
+            if (!p.reached) return false
+            val last = Ledger.goalHistory(p.goal.id, movements).firstOrNull()?.date ?: return false
+            return !today.isAfter(last.plusDays(GOAL_REACHED_DAYS))
+        }
+        progress.filter(::recentlyReached).maxByOrNull { it.goal.id }?.let {
             return MotivationMessage(MotivationReason.GOAL_REACHED, "¡Lo lograste! Completaste tu objetivo «${it.goal.name}».")
         }
 
         progress
+            .filter { !it.reached && it.goal.status == GoalStatus.ACTIVE }
             .mapNotNull { p -> MILESTONES.firstOrNull { p.percent >= it }?.let { p to it } }
             .maxWithOrNull(compareBy({ it.second }, { it.first.percent }))
             ?.let { (p, milestone) ->

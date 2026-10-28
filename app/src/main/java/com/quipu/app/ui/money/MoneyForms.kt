@@ -77,7 +77,7 @@ internal fun KindChooserSheet(onDismiss: () -> Unit, onExpense: () -> Unit, onIn
 
 /** Campo de importe con la moneda como prefijo; la moneda se cambia desde un menú si [currencyEditable]. */
 @Composable
-private fun AmountField(
+internal fun AmountField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
@@ -565,7 +565,7 @@ internal fun DeclareDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "¿Cuánto dinero tienes hoy de verdad? Se compara con el saldo calculado; tus movimientos no cambian.",
+                    "¿Cuánto dinero tienes hoy de verdad, contando lo ahorrado? Se compara con tu total calculado; tus movimientos no cambian.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 AmountField("Tengo hoy", amountText, { amountText = it }, currencyCode, { currencyCode = it }, error)

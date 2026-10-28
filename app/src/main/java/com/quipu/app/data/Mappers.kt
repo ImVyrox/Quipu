@@ -5,6 +5,7 @@ import com.quipu.app.domain.DebtPayment
 import com.quipu.app.domain.DeclaredBalance
 import com.quipu.app.domain.IncomeSource
 import com.quipu.app.domain.Movement
+import com.quipu.app.domain.SavingsGoal
 import com.quipu.app.domain.TaskItem
 import java.time.LocalDate
 import java.time.YearMonth
@@ -112,4 +113,29 @@ fun DeclaredBalanceEntity.toDomain() = DeclaredBalance(
     currencyCode = currencyCode,
     amountMinor = amountMinor,
     date = LocalDate.ofEpochDay(epochDay),
+)
+
+fun SavingsGoalEntity.toDomain() = SavingsGoal(
+    id = id,
+    name = name,
+    currencyCode = currencyCode,
+    targetMinor = targetMinor,
+    createdDate = LocalDate.ofEpochDay(createdEpochDay),
+    deadline = deadlineEpochDay?.let { LocalDate.ofEpochDay(it) },
+    description = description,
+    status = status,
+    completedDate = completedEpochDay?.let { LocalDate.ofEpochDay(it) },
+)
+
+fun SavingsGoal.toEntity(isDemo: Boolean = false) = SavingsGoalEntity(
+    id = id,
+    name = name.trim(),
+    description = description.trim(),
+    targetMinor = targetMinor,
+    currencyCode = currencyCode,
+    createdEpochDay = createdDate.toEpochDay(),
+    deadlineEpochDay = deadline?.toEpochDay(),
+    status = status,
+    completedEpochDay = completedDate?.toEpochDay(),
+    isDemo = isDemo,
 )

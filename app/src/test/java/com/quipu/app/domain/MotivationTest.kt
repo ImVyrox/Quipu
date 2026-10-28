@@ -7,7 +7,7 @@ import org.junit.Test
 
 class MotivationTest {
     private val today = LocalDate.of(2026, 10, 25)
-    private val goal = SavingsGoal(1, "Viaje", "BOB", targetMinor = 100_000)
+    private val goal = SavingsGoal(1, "Viaje", "BOB", targetMinor = 100_000, createdDate = LocalDate.of(2026, 1, 1))
 
     private fun deposit(id: Long, amount: Long, date: LocalDate = today) =
         Movement(id, MovementType.SAVING_DEPOSIT, amount, "BOB", date, goalId = 1)

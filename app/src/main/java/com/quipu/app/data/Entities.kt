@@ -8,6 +8,7 @@ import androidx.room.TypeConverter
 import com.quipu.app.domain.DebtStatus
 import com.quipu.app.domain.DebtType
 import com.quipu.app.domain.ExpenseCategory
+import com.quipu.app.domain.GoalStatus
 import com.quipu.app.domain.IncomeKind
 import com.quipu.app.domain.MovementType
 
@@ -89,4 +90,10 @@ class Converters {
 
     @TypeConverter
     fun stringToExpenseCategory(value: String?): ExpenseCategory? = value?.let { ExpenseCategory.valueOf(it) }
+
+    @TypeConverter
+    fun goalStatusToString(value: GoalStatus): String = value.name
+
+    @TypeConverter
+    fun stringToGoalStatus(value: String): GoalStatus = GoalStatus.valueOf(value)
 }

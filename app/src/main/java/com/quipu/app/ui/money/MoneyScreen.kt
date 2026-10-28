@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -60,6 +62,7 @@ import com.quipu.app.domain.CurrencyAmounts
 import com.quipu.app.domain.ExpenseCategory
 import com.quipu.app.domain.IncomeKind
 import com.quipu.app.domain.IncomeProgress
+import com.quipu.app.domain.Ledger
 import com.quipu.app.domain.Money
 import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementKindFilter
@@ -73,7 +76,7 @@ import com.quipu.app.ui.theme.QuipuColors
 import java.time.LocalDate
 
 /** Qué formulario está abierto. Se guarda como texto para sobrevivir a rotaciones. */
-private enum class MoneySheet { CHOOSER, EXPENSE, INCOME, SOURCE }
+private enum class MoneySheet { CHOOSER, EXPENSE, INCOME, SOURCE, GOAL_FORM, GOAL_DETAIL }
 
 @Composable
 fun MoneyScreen(
@@ -95,9 +98,19 @@ fun MoneyScreen(
     var deletingId by rememberSaveable { mutableStateOf<Long?>(null) }
     var settlingId by rememberSaveable { mutableStateOf<Long?>(null) }
     var declaring by rememberSaveable { mutableStateOf(false) }
+    /** Objetivo abierto (detalle o edición; null en el formulario = nuevo). */
+    var goalId by rememberSaveable { mutableStateOf<Long?>(null) }
+    /** Movimiento de ahorro en curso: objetivo y tipo. */
+    var savingGoalId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var savingType by rememberSaveable { mutableStateOf<MovementType?>(null) }
 
     val today = LocalDate.now()
     val sourceNames = state.sources.associate { it.id to it.name }
+    val goalNames = state.goals.associate { it.goal.id to it.goal.name }
+    fun openGoal(id: Long) {
+        goalId = id
+        sheet = MoneySheet.GOAL_DETAIL
+    }
 
     Scaffold(
         topBar = {
@@ -182,6 +195,41 @@ fun MoneyScreen(
                 )
             }
             item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    SectionHeader("Objetivos de ahorro", modifier = Modifier.padding(bottom = 6.dp))
+                    TextButton(onClick = {
+                        goalId = null
+                        sheet = MoneySheet.GOAL_FORM
+                    }) { Text("Nuevo") }
+                }
+            }
+            if (state.goals.isEmpty()) {
+                item {
+                    HintCard(
+                        "Crea un objetivo (un viaje, una laptop, un fondo de emergencia) y aparta dinero de tu " +
+                            "disponible. Aportar o retirar no cambia tu dinero total.",
+                    )
+                }
+            }
+            items(state.goals, key = { "goal-${it.goal.id}" }) { progress ->
+                GoalCard(
+                    progress = progress,
+                    onOpen = { openGoal(progress.goal.id) },
+                    onDeposit = {
+                        savingGoalId = progress.goal.id
+                        savingType = MovementType.SAVING_DEPOSIT
+                    },
+                    onWithdraw = {
+                        savingGoalId = progress.goal.id
+                        savingType = MovementType.SAVING_WITHDRAWAL
+                    },
+                )
+            }
+            item {
                 SectionHeader("Movimientos")
                 HistoryFilters(
                     kind = state.filter.kind,
@@ -207,13 +255,21 @@ fun MoneyScreen(
                 MovementCard(
                     movement = movement,
                     sourceName = movement.incomeSourceId?.let { sourceNames[it] },
+                    goalName = movement.goalId?.let { goalNames[it] ?: "Objetivo eliminado" },
                     today = today,
                     onEdit = {
-                        editingMovementId = movement.id
-                        presetSourceId = null
-                        sheet = if (movement.type == MovementType.INCOME) MoneySheet.INCOME else MoneySheet.EXPENSE
+                        when {
+                            // Los movimientos de ahorro no se editan: se ven y se borran desde su objetivo.
+                            movement.type.isSaving -> movement.goalId?.takeIf { it in goalNames }?.let(::openGoal)
+                            else -> {
+                                editingMovementId = movement.id
+                                presetSourceId = null
+                                sheet = if (movement.type == MovementType.INCOME) MoneySheet.INCOME else MoneySheet.EXPENSE
+                            }
+                        }
                     },
-                    onDelete = { deletingId = movement.id },
+                    // El historial de un objetivo eliminado es de solo lectura.
+                    onDelete = if (movement.type.isSaving && movement.goalId !in goalNames) null else ({ deletingId = movement.id }),
                     onSettle = { settlingId = movement.id },
                 )
             }
@@ -260,16 +316,62 @@ fun MoneyScreen(
                 sheet = null
             },
         )
+        MoneySheet.GOAL_FORM -> {
+            val editing = state.goals.firstOrNull { it.goal.id == goalId }?.goal
+            GoalFormSheet(
+                initial = editing,
+                hasMovements = editing != null && state.all.any { it.goalId == editing.id },
+                defaultCurrency = state.defaultCurrency,
+                onDismiss = { sheet = if (editing != null) MoneySheet.GOAL_DETAIL else null },
+                onSave = { goal, opening ->
+                    viewModel.saveGoal(goal, opening)
+                    sheet = if (editing != null) MoneySheet.GOAL_DETAIL else null
+                },
+            )
+        }
+        MoneySheet.GOAL_DETAIL -> {
+            val progress = state.goals.firstOrNull { it.goal.id == goalId }
+            // El objetivo ya no existe (por ejemplo, recién eliminado): se cierra la hoja.
+            if (progress == null) {
+                LaunchedEffect(goalId) { sheet = null }
+            } else GoalDetailSheet(
+                progress = progress,
+                history = Ledger.goalHistory(progress.goal.id, state.all),
+                today = today,
+                onDismiss = { sheet = null },
+                onEdit = { sheet = MoneySheet.GOAL_FORM },
+                onSaving = { type ->
+                    savingGoalId = progress.goal.id
+                    savingType = type
+                },
+                onStatus = { viewModel.setGoalStatus(progress.goal, it) },
+                onDeleteMovement = { deletingId = it.id },
+                onDeleteGoal = {
+                    viewModel.deleteGoal(progress.goal)
+                    sheet = null
+                },
+            )
+        }
         null -> Unit
     }
 
     deletingId?.let { id ->
         state.all.firstOrNull { it.id == id }?.let { movement ->
-            val noun = if (movement.type == MovementType.INCOME) "ingreso" else "gasto"
+            val noun = when (movement.type) {
+                MovementType.INCOME -> "ingreso"
+                MovementType.EXPENSE -> "gasto"
+                else -> savingLabel(movement.type).lowercase()
+            }
+            val effect = when (movement.type) {
+                MovementType.SAVING_DEPOSIT -> " El importe volverá a tu disponible."
+                MovementType.SAVING_WITHDRAWAL -> " El importe volverá al objetivo."
+                MovementType.SAVING_OPENING -> " Lo ahorrado en el objetivo bajará."
+                else -> ""
+            }
             ConfirmDeleteDialog(
                 title = "¿Eliminar $noun?",
                 message = "Se eliminará el $noun de ${formatAmount(movement.amountMinor, movement.currencyCode)} " +
-                    "del ${Formats.date(movement.date)}. Esta acción no se puede deshacer.",
+                    "del ${Formats.date(movement.date)}.$effect Esta acción no se puede deshacer.",
                 onConfirm = {
                     viewModel.delete(movement)
                     deletingId = null
@@ -290,6 +392,21 @@ fun MoneyScreen(
                 },
             )
         }
+    }
+
+    val savingGoal = state.goals.firstOrNull { it.goal.id == savingGoalId }
+    val type = savingType
+    if (savingGoal != null && type != null) {
+        SavingDialog(
+            progress = savingGoal,
+            type = type,
+            movements = state.all,
+            onDismiss = { savingType = null },
+            onConfirm = { minor, date, note ->
+                viewModel.addSaving(savingGoal.goal, type, minor, date, note)
+                savingType = null
+            },
+        )
     }
 
     if (declaring) {
@@ -387,8 +504,8 @@ private fun BalanceCard(state: MoneyUiState, onDeclare: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val fallback = state.defaultCurrency
     MoneyCard {
-        Text("Saldo calculado", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
-        amountLines(state.available, fallback).forEach { (text, minor) ->
+        Text("Disponible", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
+        amountLines(state.overview.available, fallback).forEach { (text, minor) ->
             Text(
                 text = text,
                 style = MaterialTheme.typography.headlineMedium,
@@ -397,11 +514,17 @@ private fun BalanceCard(state: MoneyUiState, onDeclare: () -> Unit) {
             )
         }
         Text(
-            "Ingresos recibidos menos gastos pagados, con todos tus movimientos hasta hoy. " +
-                "Los préstamos no cuentan.",
+            "Saldo calculado: ingresos recibidos menos gastos pagados y menos lo apartado en ahorros, " +
+                "con tus movimientos hasta hoy. Los préstamos no cuentan.",
             style = MaterialTheme.typography.bodySmall,
             color = scheme.onSurfaceVariant,
         )
+        if (!state.overview.saved.isEmpty) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Figure("En ahorros", amountLines(state.overview.saved, fallback), scheme.primary, Modifier.weight(1f))
+                Figure("Total (disponible + ahorros)", amountLines(state.overview.total, fallback), scheme.onSurface, Modifier.weight(1f))
+            }
+        }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = scheme.outlineVariant)
         Text(
@@ -444,9 +567,9 @@ private fun BalanceCard(state: MoneyUiState, onDeclare: () -> Unit) {
                 )
                 Text(
                     text = when {
-                        diff == 0L -> "Coincide con el saldo calculado de ese día."
-                        diff > 0 -> "Tienes ${formatAmount(diff, code)} más que el saldo calculado: puede faltar anotar algún ingreso."
-                        else -> "Tienes ${formatAmount(-diff, code)} menos que el saldo calculado: puede faltar anotar algún gasto."
+                        diff == 0L -> "Coincide con tu total calculado de ese día."
+                        diff > 0 -> "Tienes ${formatAmount(diff, code)} más que tu total calculado: puede faltar anotar algún ingreso."
+                        else -> "Tienes ${formatAmount(-diff, code)} menos que tu total calculado: puede faltar anotar algún gasto."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = scheme.onSurfaceVariant,
@@ -573,8 +696,9 @@ private fun HistoryFilters(
             FilterChip(selected = kind == MovementKindFilter.ALL, onClick = { onKind(MovementKindFilter.ALL) }, label = { Text("Todos") })
             FilterChip(selected = kind == MovementKindFilter.INCOME, onClick = { onKind(MovementKindFilter.INCOME) }, label = { Text("Ingresos") })
             FilterChip(selected = kind == MovementKindFilter.EXPENSE, onClick = { onKind(MovementKindFilter.EXPENSE) }, label = { Text("Gastos") })
+            FilterChip(selected = kind == MovementKindFilter.SAVINGS, onClick = { onKind(MovementKindFilter.SAVINGS) }, label = { Text("Ahorros") })
         }
-        if (kind != MovementKindFilter.INCOME) {
+        if (kind == MovementKindFilter.ALL || kind == MovementKindFilter.EXPENSE) {
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -592,18 +716,29 @@ private fun HistoryFilters(
 private fun MovementCard(
     movement: Movement,
     sourceName: String?,
+    goalName: String?,
     today: LocalDate,
     onEdit: () -> Unit,
-    onDelete: () -> Unit,
+    onDelete: (() -> Unit)?,
     onSettle: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     val extra = QuipuColors.extra
     val income = movement.type == MovementType.INCOME
+    val saving = movement.type.isSaving
     val title = movement.description.ifBlank {
-        if (income) sourceName ?: "Ingreso" else movement.category?.label ?: "Gasto"
+        when {
+            saving -> goalName ?: "Ahorro"
+            income -> sourceName ?: "Ingreso"
+            else -> movement.category?.label ?: "Gasto"
+        }
     }
-    val amountText = (if (income) "+" else "-") + formatAmount(movement.amountMinor, movement.currencyCode)
+    // En el ahorro el signo es respecto al objetivo (+ aporta, − retira).
+    val amountText = when {
+        saving -> savingSigned(movement)
+        income -> "+" + formatAmount(movement.amountMinor, movement.currencyCode)
+        else -> "-" + formatAmount(movement.amountMinor, movement.currencyCode)
+    }
 
     Card(
         onClick = onEdit,
@@ -629,6 +764,7 @@ private fun MovementCard(
                     fontWeight = FontWeight.SemiBold,
                     color = when {
                         movement.pending -> scheme.onSurfaceVariant
+                        saving -> scheme.primary
                         income -> extra.positive
                         else -> extra.negative
                     },
@@ -636,8 +772,13 @@ private fun MovementCard(
                 )
             }
             // La etiqueta de categoría o fuente solo aporta si el título es la descripción.
-            val tag = if (movement.description.isBlank()) null else if (income) sourceName else movement.category?.label
-            if (movement.pending || tag != null) {
+            val tag = when {
+                movement.description.isBlank() -> null
+                saving -> goalName
+                income -> sourceName
+                else -> movement.category?.label
+            }
+            if (movement.pending || tag != null || saving) {
                 Row(
                     modifier = Modifier.padding(top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -645,6 +786,9 @@ private fun MovementCard(
                 ) {
                     if (movement.pending) {
                         StatusPill(if (income) "Por cobrar" else "Por pagar", container = extra.soonContainer, content = extra.soon)
+                    }
+                    if (saving) {
+                        StatusPill(savingLabel(movement.type), container = scheme.primaryContainer, content = scheme.onPrimaryContainer)
                     }
                     tag?.let { StatusPill(it, container = scheme.surfaceVariant, content = scheme.onSurfaceVariant) }
                 }
@@ -667,8 +811,13 @@ private fun MovementCard(
                 if (movement.pending) {
                     TextButton(onClick = onSettle) { Text(if (income) "Marcar cobrado" else "Marcar pagado") }
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Eliminar $title")
+                if (onDelete != null) {
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "Eliminar $title")
+                    }
+                } else {
+                    // Mantiene la altura de la fila aunque no haya acciones.
+                    Spacer(Modifier.size(48.dp))
                 }
             }
         }

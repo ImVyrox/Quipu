@@ -63,7 +63,35 @@ class MigrationTest {
     }
 
     @Test
-    fun migra1a4() {
+    fun migra4a5ConservaMovimientos() {
+        helper.createDatabase(dbName, 4).apply {
+            execSQL(
+                "INSERT INTO movements (id, type, amountMinor, currencyCode, epochDay, description, category, pending, " +
+                    "incomeSourceId, workEpochDay, workedMinutes, goalId, recurringPaymentId, period, createdAtEpochSecond, isDemo) " +
+                    "VALUES (1, 'EXPENSE', 2550, 'BOB', 20000, 'Almuerzo', 'FOOD', 0, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0)",
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 5, true, QuipuDatabase.MIGRATION_4_5).close()
+
+        val db = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            QuipuDatabase::class.java,
+            dbName,
+        ).addMigrations(*QuipuDatabase.ALL_MIGRATIONS).build()
+        try {
+            runBlocking {
+                val repo = MoneyRepository(db)
+                assertEquals(2_550L, repo.observeMovements().first().single().amountMinor)
+                assertTrue(repo.observeGoals().first().isEmpty())
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun migra1aLaUltima() {
         helper.createDatabase(dbName, 1).apply {
             execSQL(
                 "INSERT INTO tasks (id, title, description, dueLocalEpochSecond, completed, isDemo) " +
@@ -71,6 +99,6 @@ class MigrationTest {
             )
             close()
         }
-        helper.runMigrationsAndValidate(dbName, 4, true, *QuipuDatabase.ALL_MIGRATIONS).close()
+        helper.runMigrationsAndValidate(dbName, 5, true, *QuipuDatabase.ALL_MIGRATIONS).close()
     }
 }

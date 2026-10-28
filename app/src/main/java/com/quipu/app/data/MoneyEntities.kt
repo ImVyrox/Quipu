@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.quipu.app.domain.ExpenseCategory
+import com.quipu.app.domain.GoalStatus
 import com.quipu.app.domain.IncomeKind
 import com.quipu.app.domain.MovementType
 
@@ -72,4 +73,23 @@ data class DeclaredBalanceEntity(
     val currencyCode: String,
     val amountMinor: Long,
     val epochDay: Long,
+)
+
+/**
+ * Objetivo de ahorro. Lo acumulado no se guarda: se calcula con sus movimientos
+ * (aportaciones, retiros y ahorro inicial) para que historial y saldo coincidan siempre.
+ */
+@Entity(tableName = "savings_goals")
+data class SavingsGoalEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val description: String,
+    /** Importe objetivo en centavos. */
+    val targetMinor: Long,
+    val currencyCode: String,
+    val createdEpochDay: Long,
+    val deadlineEpochDay: Long?,
+    val status: GoalStatus,
+    val completedEpochDay: Long?,
+    @ColumnInfo(defaultValue = "0") val isDemo: Boolean = false,
 )

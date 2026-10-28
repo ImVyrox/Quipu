@@ -7,7 +7,10 @@ import java.time.YearMonth
 data class PeriodTotals(
     val income: CurrencyAmounts,
     val expense: CurrencyAmounts,
-    /** Traspasos al ahorro menos retiros. No es un gasto: el dinero sigue siendo del usuario. */
+    /**
+     * Aportaciones al ahorro menos retiros. No es un gasto: el dinero sigue siendo del
+     * usuario. El ahorro inicial no cuenta aquí (no salió del disponible del periodo).
+     */
     val savedNet: CurrencyAmounts,
 ) {
     /** Ingresos menos gastos, por moneda. Los traspasos al ahorro no cuentan. */
@@ -20,7 +23,7 @@ data class PendingTotals(
     val expense: CurrencyAmounts,
 )
 
-enum class MovementKindFilter { ALL, INCOME, EXPENSE }
+enum class MovementKindFilter { ALL, INCOME, EXPENSE, SAVINGS }
 
 /** Filtro del historial: mes ([month] null = todo), tipo y categoría de gasto. */
 data class MovementFilter(
@@ -29,7 +32,7 @@ data class MovementFilter(
     val category: ExpenseCategory? = null,
 )
 
-/** Dinero declarado frente al saldo calculado con los movimientos hasta esa fecha. */
+/** Dinero declarado frente al total calculado (disponible + ahorros) hasta esa fecha. */
 data class DeclaredComparison(
     val declared: DeclaredBalance,
     val calculatedMinor: Long,
@@ -52,12 +55,26 @@ data class GoalProgress(
     val reached: Boolean get() = savedMinor >= goal.targetMinor
 }
 
-/** Por qué no se puede registrar un traspaso al ahorro, o null si se puede. */
-enum class TransferError {
-    INVALID_AMOUNT,
-    CURRENCY_MISMATCH,
-    INSUFFICIENT_AVAILABLE,
-    INSUFFICIENT_SAVINGS,
+/**
+ * Dinero por moneda: el disponible, lo apartado en objetivos de ahorro y el total.
+ * Aportar o retirar mueve dinero entre los dos primeros sin cambiar el total.
+ */
+data class BalanceOverview(
+    val available: CurrencyAmounts,
+    val saved: CurrencyAmounts,
+) {
+    val total: CurrencyAmounts get() = available + saved
+}
+
+/** Por qué no se puede registrar (o borrar) un movimiento de ahorro, o null si se puede. */
+enum class TransferError(val message: String) {
+    INVALID_AMOUNT("El importe debe ser mayor que cero"),
+    CURRENCY_MISMATCH("La moneda no coincide con la del objetivo"),
+    INSUFFICIENT_AVAILABLE("No tienes tanto disponible en esa moneda"),
+    INSUFFICIENT_SAVINGS("Supera lo ahorrado en este objetivo"),
+    GOAL_NOT_ACTIVE("El objetivo está en pausa o completado: no admite aportaciones"),
+    OPENING_ALREADY_EXISTS("Este objetivo ya tiene un ahorro inicial"),
+    GOAL_DELETED("El objetivo fue eliminado: su historial ya no se puede cambiar"),
 }
 
 /**
@@ -83,6 +100,14 @@ object Ledger {
     fun availableEffect(movement: Movement): Long = when (movement.type) {
         MovementType.INCOME, MovementType.SAVING_WITHDRAWAL -> movement.amountMinor
         MovementType.EXPENSE, MovementType.SAVING_DEPOSIT -> -movement.amountMinor
+        MovementType.SAVING_OPENING -> 0L
+    }
+
+    /** Efecto de un movimiento sobre lo ahorrado en su objetivo. */
+    fun savingEffect(movement: Movement): Long = when (movement.type) {
+        MovementType.SAVING_DEPOSIT, MovementType.SAVING_OPENING -> movement.amountMinor
+        MovementType.SAVING_WITHDRAWAL -> -movement.amountMinor
+        MovementType.INCOME, MovementType.EXPENSE -> 0L
     }
 
     /** Dinero disponible por moneda con los movimientos hasta [upTo] (incluido); null = todos. */
@@ -91,20 +116,28 @@ object Ledger {
             .filter { upTo == null || !it.date.isAfter(upTo) }
             .fold(CurrencyAmounts.EMPTY) { acc, m -> acc.plus(m.currencyCode, availableEffect(m)) }
 
-    /** Ahorrado en un objetivo: aportaciones menos retiros (en la moneda del objetivo). */
+    /** Ahorrado en un objetivo: ahorro inicial más aportaciones menos retiros. */
     fun goalBalance(goalId: Long, movements: List<Movement>): Long =
         settled(movements)
-            .filter { it.goalId == goalId && it.type.isTransfer }
-            .sumOf { if (it.type == MovementType.SAVING_DEPOSIT) it.amountMinor else -it.amountMinor }
+            .filter { it.goalId == goalId && it.type.isSaving }
+            .sumOf { savingEffect(it) }
+
+    /** Movimientos de un objetivo, del más reciente al más antiguo. */
+    fun goalHistory(goalId: Long, movements: List<Movement>): List<Movement> =
+        history(movements).filter { it.goalId == goalId && it.type.isSaving }
 
     fun goalProgress(goal: SavingsGoal, movements: List<Movement>): GoalProgress =
         GoalProgress(goal, goalBalance(goal.id, movements))
 
     /** Total ahorrado por moneda (suma de todos los objetivos). */
-    fun totalSaved(movements: List<Movement>): CurrencyAmounts =
+    fun totalSaved(movements: List<Movement>, upTo: LocalDate? = null): CurrencyAmounts =
         settled(movements)
-            .filter { it.type.isTransfer }
-            .fold(CurrencyAmounts.EMPTY) { acc, m -> acc.plus(m.currencyCode, -availableEffect(m)) }
+            .filter { it.type.isSaving && (upTo == null || !it.date.isAfter(upTo)) }
+            .fold(CurrencyAmounts.EMPTY) { acc, m -> acc.plus(m.currencyCode, savingEffect(m)) }
+
+    /** Disponible, ahorrado y total por moneda hasta [upTo] (null = todos los movimientos). */
+    fun overview(movements: List<Movement>, upTo: LocalDate? = null): BalanceOverview =
+        BalanceOverview(available(movements, upTo), totalSaved(movements, upTo))
 
     /** Totales de un mes. */
     fun periodTotals(movements: List<Movement>, month: YearMonth): PeriodTotals =
@@ -123,6 +156,7 @@ object Ledger {
                     MovementType.EXPENSE -> expense = expense.plus(m.currencyCode, m.amountMinor)
                     MovementType.SAVING_DEPOSIT -> saved = saved.plus(m.currencyCode, m.amountMinor)
                     MovementType.SAVING_WITHDRAWAL -> saved = saved.plus(m.currencyCode, -m.amountMinor)
+                    MovementType.SAVING_OPENING -> Unit
                 }
             }
         return PeriodTotals(income, expense, saved)
@@ -159,15 +193,17 @@ object Ledger {
                     MovementKindFilter.INCOME -> m.type == MovementType.INCOME
                     MovementKindFilter.EXPENSE ->
                         m.type == MovementType.EXPENSE && (filter.category == null || m.category == filter.category)
+                    MovementKindFilter.SAVINGS -> m.type.isSaving
                 }
         }
 
     /**
-     * Compara el dinero que el usuario declara tener con el saldo calculado de esa moneda
-     * en la misma fecha. La diferencia es informativa: no crea ningún movimiento.
+     * Compara el dinero que el usuario declara tener con el total calculado de esa moneda
+     * (disponible + ahorros: lo apartado sigue siendo suyo) en la misma fecha. La
+     * diferencia es informativa: no crea ningún movimiento.
      */
     fun compareDeclared(declared: DeclaredBalance, movements: List<Movement>): DeclaredComparison {
-        val calculated = available(movements, upTo = declared.date)[declared.currencyCode]
+        val calculated = overview(movements, upTo = declared.date).total[declared.currencyCode]
         return DeclaredComparison(declared, calculated)
     }
 
@@ -179,8 +215,9 @@ object Ledger {
 
     /**
      * Comprueba un traspaso entre el disponible y un objetivo. Una aportación no puede
-     * superar el disponible de esa moneda y un retiro no puede superar lo ahorrado.
-     * El objetivo y el traspaso deben ir en la misma moneda.
+     * superar el disponible de esa moneda (el disponible nunca queda en negativo por
+     * ahorrar) y solo se admite en objetivos activos; un retiro no puede superar lo
+     * ahorrado. El objetivo y el traspaso deben ir en la misma moneda.
      */
     fun validateTransfer(
         type: MovementType,
@@ -193,11 +230,49 @@ object Ledger {
         return when {
             amountMinor <= 0L || amountMinor > Money.MAX_MINOR -> TransferError.INVALID_AMOUNT
             currencyCode != goal.currencyCode -> TransferError.CURRENCY_MISMATCH
+            type == MovementType.SAVING_DEPOSIT && goal.status != GoalStatus.ACTIVE -> TransferError.GOAL_NOT_ACTIVE
             type == MovementType.SAVING_DEPOSIT && amountMinor > available(movements)[currencyCode] ->
                 TransferError.INSUFFICIENT_AVAILABLE
             type == MovementType.SAVING_WITHDRAWAL && amountMinor > goalBalance(goal.id, movements) ->
                 TransferError.INSUFFICIENT_SAVINGS
             else -> null
         }
+    }
+
+    /** Comprueba el ahorro inicial de un objetivo: positivo, en su moneda y solo uno. */
+    fun validateOpening(amountMinor: Long, goal: SavingsGoal, movements: List<Movement>): TransferError? = when {
+        amountMinor <= 0L || amountMinor > Money.MAX_MINOR -> TransferError.INVALID_AMOUNT
+        distinct(movements).any { it.goalId == goal.id && it.type == MovementType.SAVING_OPENING } ->
+            TransferError.OPENING_ALREADY_EXISTS
+        else -> null
+    }
+
+    /**
+     * Si se puede borrar un movimiento de ahorro: lo ahorrado en su objetivo no puede
+     * quedar en negativo (por ejemplo, borrar una aportación ya retirada).
+     */
+    fun validateRemoval(movement: Movement, movements: List<Movement>): TransferError? {
+        val goalId = movement.goalId ?: return null
+        if (!movement.type.isSaving) return null
+        val after = goalBalance(goalId, movements.filter { it.id != movement.id })
+        return if (after < 0) TransferError.INSUFFICIENT_SAVINGS else null
+    }
+
+    /**
+     * Retiro que devuelve al disponible todo lo ahorrado en un objetivo, o null si no hay
+     * nada. Se usa al eliminar un objetivo para no hacer desaparecer dinero.
+     */
+    fun closingWithdrawal(goal: SavingsGoal, movements: List<Movement>, date: LocalDate): Movement? {
+        val balance = goalBalance(goal.id, movements)
+        if (balance <= 0L) return null
+        return Movement(
+            id = 0,
+            type = MovementType.SAVING_WITHDRAWAL,
+            amountMinor = balance,
+            currencyCode = goal.currencyCode,
+            date = date,
+            description = "Cierre de «${goal.name}»",
+            goalId = goal.id,
+        )
     }
 }

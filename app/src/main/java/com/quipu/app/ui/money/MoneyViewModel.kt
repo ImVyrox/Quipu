@@ -3,21 +3,27 @@ package com.quipu.app.ui.money
 import android.app.Application
 import androidx.lifecycle.viewModelScope
 import com.quipu.app.data.DuplicateIncomeException
+import com.quipu.app.data.SavingRejectedException
 import com.quipu.app.domain.AppCurrencies
 import com.quipu.app.domain.AppCurrency
+import com.quipu.app.domain.BalanceOverview
 import com.quipu.app.domain.CurrencyAmounts
 import com.quipu.app.domain.DeclaredComparison
 import com.quipu.app.domain.ExpenseCategory
+import com.quipu.app.domain.GoalProgress
+import com.quipu.app.domain.GoalStatus
 import com.quipu.app.domain.IncomePlanner
 import com.quipu.app.domain.IncomeProgress
 import com.quipu.app.domain.IncomeSource
 import com.quipu.app.domain.Ledger
+import com.quipu.app.domain.Money
 import com.quipu.app.domain.MovementFilter
 import com.quipu.app.domain.MovementKindFilter
 import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementType
 import com.quipu.app.domain.PendingTotals
 import com.quipu.app.domain.PeriodTotals
+import com.quipu.app.domain.SavingsGoal
 import com.quipu.app.ui.BaseViewModel
 import com.quipu.app.ui.Formats
 import java.time.LocalDate
@@ -47,8 +53,10 @@ data class MoneyUiState(
     val totals: PeriodTotals = PeriodTotals(CurrencyAmounts.EMPTY, CurrencyAmounts.EMPTY, CurrencyAmounts.EMPTY),
     /** Por cobrar y por pagar del periodo: se muestran aparte. */
     val pending: PendingTotals = PendingTotals(CurrencyAmounts.EMPTY, CurrencyAmounts.EMPTY),
-    /** Saldo calculado con todos los movimientos hasta hoy, por moneda. */
-    val available: CurrencyAmounts = CurrencyAmounts.EMPTY,
+    /** Disponible, ahorrado y total con todos los movimientos hasta hoy, por moneda. */
+    val overview: BalanceOverview = BalanceOverview(CurrencyAmounts.EMPTY, CurrencyAmounts.EMPTY),
+    /** Objetivos de ahorro con lo acumulado: activos primero, luego en pausa y completados. */
+    val goals: List<GoalProgress> = emptyList(),
     /** Ingresos previstos al mes de las fuentes activas (no es dinero disponible). */
     val projected: CurrencyAmounts = CurrencyAmounts.EMPTY,
     /** Último dinero declarado de cada moneda frente al saldo calculado. */
@@ -63,9 +71,9 @@ class MoneyViewModel(application: Application) : BaseViewModel(application) {
         money.observeMovements(),
         money.observeIncomeSources(),
         money.observeDeclaredBalances(),
-        filter,
-        repository.settings.currency,
-    ) { movements, sources, declared, f, currency ->
+        money.observeGoals(),
+        combine(filter, repository.settings.currency) { f, c -> f to c },
+    ) { movements, sources, declared, goals, (f, currency) ->
         val today = LocalDate.now()
         val month = f.month
         val from = month?.atDay(1)
@@ -82,7 +90,10 @@ class MoneyViewModel(application: Application) : BaseViewModel(application) {
             progressMonth = progressMonth,
             totals = Ledger.rangeTotals(movements, from ?: LocalDate.MIN, to ?: LocalDate.MAX),
             pending = Ledger.pendingTotals(movements, from, to),
-            available = Ledger.available(movements, upTo = today),
+            overview = Ledger.overview(movements, upTo = today),
+            goals = goals
+                .map { Ledger.goalProgress(it, movements) }
+                .sortedWith(compareBy<GoalProgress>({ it.goal.status.ordinal }, { it.goal.id })),
             projected = IncomePlanner.projectedTotal(sources),
             declared = declared
                 .groupBy { it.currencyCode }
@@ -128,8 +139,73 @@ class MoneyViewModel(application: Application) : BaseViewModel(application) {
     }
 
     fun delete(movement: Movement) {
-        val noun = if (movement.type == MovementType.INCOME) "Ingreso" else "Gasto"
-        launchAction("$noun eliminado") { money.deleteMovement(movement.id) }
+        val message = when (movement.type) {
+            MovementType.INCOME -> "Ingreso eliminado"
+            MovementType.EXPENSE -> "Gasto eliminado"
+            else -> "Movimiento de ahorro eliminado"
+        }
+        runSaving(message) { money.deleteMovement(movement.id) }
+    }
+
+    // ---- Objetivos de ahorro ----
+
+    /** Crea o edita un objetivo; si es nuevo y trae ahorro inicial, lo registra explícitamente. */
+    fun saveGoal(goal: SavingsGoal, openingMinor: Long?) {
+        runSaving(if (goal.id == 0L) "Objetivo creado" else "Cambios guardados") {
+            val id = money.saveGoal(goal)
+            if (goal.id == 0L && openingMinor != null && openingMinor > 0) {
+                money.addSaving(id, MovementType.SAVING_OPENING, openingMinor, goal.createdDate)
+            }
+        }
+    }
+
+    fun setGoalStatus(goal: SavingsGoal, status: GoalStatus) {
+        val message = when (status) {
+            GoalStatus.ACTIVE -> "Objetivo reanudado"
+            GoalStatus.PAUSED -> "Objetivo en pausa"
+            GoalStatus.COMPLETED -> "¡Objetivo completado!"
+        }
+        launchAction(message) { money.setGoalStatus(goal.id, status, LocalDate.now()) }
+    }
+
+    fun addSaving(goal: SavingsGoal, type: MovementType, amountMinor: Long, date: LocalDate, description: String) {
+        val message = when (type) {
+            MovementType.SAVING_DEPOSIT -> "Aportación registrada"
+            MovementType.SAVING_WITHDRAWAL -> "Retiro registrado: el dinero volvió a tu disponible"
+            else -> "Ahorro inicial registrado"
+        }
+        runSaving(message) { money.addSaving(goal.id, type, amountMinor, date, description) }
+    }
+
+    fun deleteGoal(goal: SavingsGoal) {
+        viewModelScope.launch {
+            try {
+                val returned = money.deleteGoal(goal.id, LocalDate.now())
+                say(
+                    if (returned > 0) {
+                        "Objetivo eliminado: ${Money.format(returned, AppCurrencies.byCode(goal.currencyCode))} volvió a tu disponible"
+                    } else {
+                        "Objetivo eliminado"
+                    },
+                )
+            } catch (e: Exception) {
+                say("No se pudo completar la acción. Inténtalo de nuevo.")
+            }
+        }
+    }
+
+    /** Como launchAction, pero muestra el motivo cuando la política de ahorro rechaza la operación. */
+    private fun runSaving(success: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+                say(success)
+            } catch (e: SavingRejectedException) {
+                say(e.error.message)
+            } catch (e: Exception) {
+                say("No se pudo completar la acción. Inténtalo de nuevo.")
+            }
+        }
     }
 
     // ---- Fuentes de ingreso ----

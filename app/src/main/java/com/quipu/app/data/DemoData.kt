@@ -3,6 +3,7 @@ package com.quipu.app.data
 import com.quipu.app.domain.DebtStatus
 import com.quipu.app.domain.DebtType
 import com.quipu.app.domain.ExpenseCategory
+import com.quipu.app.domain.GoalStatus
 import com.quipu.app.domain.IncomePlanner
 import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementType
@@ -100,6 +101,27 @@ object DemoData {
             expense(1_200, ExpenseCategory.TRANSPORT, 5, "Micro (ejemplo)"),
             expense(9_000, ExpenseCategory.STUDIES, 3, "Fotocopias y libro (ejemplo)"),
             expense(3_000, ExpenseCategory.SUBSCRIPTIONS, 2, ""),
+        )
+    }
+
+    /** Objetivo de ejemplo con ahorro inicial explícito y una aportación del mes. */
+    fun goal(today: LocalDate): SavingsGoalEntity = SavingsGoalEntity(
+        name = "Laptop (ejemplo)",
+        description = "Para la universidad",
+        targetMinor = 300_000,
+        currencyCode = "BOB",
+        createdEpochDay = today.withDayOfMonth(1).toEpochDay(),
+        deadlineEpochDay = today.plusMonths(6).toEpochDay(),
+        status = GoalStatus.ACTIVE,
+        completedEpochDay = null,
+        isDemo = true,
+    )
+
+    fun goalMovements(today: LocalDate, goalId: Long): List<Movement> {
+        val first = today.withDayOfMonth(1)
+        return listOf(
+            Movement(0, MovementType.SAVING_OPENING, 50_000, "BOB", first, "Lo que ya tenía guardado (ejemplo)", goalId = goalId),
+            Movement(0, MovementType.SAVING_DEPOSIT, 5_000, "BOB", maxOf(first, today.minusDays(3)), "", goalId = goalId),
         )
     }
 }

@@ -36,8 +36,9 @@ data class GoalFormErrors(
     val name: String? = null,
     val target: String? = null,
     val deadline: String? = null,
+    val description: String? = null,
 ) {
-    val hasErrors: Boolean get() = name != null || target != null || deadline != null
+    val hasErrors: Boolean get() = name != null || target != null || deadline != null || description != null
 }
 
 data class RecurringFormErrors(
@@ -114,12 +115,22 @@ object FinanceValidators {
         hours = if (kind == IncomeKind.HOURLY) hoursError(hoursText) else null,
     )
 
-    fun validateGoal(name: String, targetText: String, deadline: LocalDate?, today: LocalDate): GoalFormErrors =
-        GoalFormErrors(
-            name = nameError(name),
-            target = amountError(targetText, "Escribe la meta"),
-            deadline = if (deadline != null && deadline.isBefore(today)) "La fecha límite ya pasó" else null,
-        )
+    /** Objetivo: nombre e importe objetivo obligatorios; la fecha límite, si hay, no antes de su creación. */
+    fun validateGoal(
+        name: String,
+        targetText: String,
+        deadline: LocalDate?,
+        createdDate: LocalDate,
+        description: String = "",
+    ): GoalFormErrors = GoalFormErrors(
+        name = nameError(name),
+        target = amountError(targetText, "Escribe la meta"),
+        deadline = if (deadline != null && deadline.isBefore(createdDate)) "No puede ser anterior a la creación del objetivo" else null,
+        description = if (description.length > Limits.NOTE_MAX) "Máximo ${Limits.NOTE_MAX} caracteres" else null,
+    )
+
+    /** Importe de una aportación, retiro o ahorro inicial (los límites de saldo los revisa [Ledger]). */
+    fun validateSavingAmount(amountText: String): String? = amountError(amountText)
 
     fun validateRecurring(
         name: String,

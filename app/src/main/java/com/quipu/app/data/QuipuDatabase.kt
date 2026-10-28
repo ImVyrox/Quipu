@@ -16,8 +16,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MovementEntity::class,
         IncomeSourceEntity::class,
         DeclaredBalanceEntity::class,
+        SavingsGoalEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -28,6 +29,7 @@ abstract class QuipuDatabase : RoomDatabase() {
     abstract fun movementDao(): MovementDao
     abstract fun incomeSourceDao(): IncomeSourceDao
     abstract fun declaredBalanceDao(): DeclaredBalanceDao
+    abstract fun savingsGoalDao(): SavingsGoalDao
 
     companion object {
         /**
@@ -62,10 +64,20 @@ abstract class QuipuDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v5: objetivos de ahorro. Solo crea la tabla savings_goals; sus aportaciones y
+         * retiros ya caben en movements. No toca ningún dato existente.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                MIGRATION_4_5_SQL.forEach(db::execSQL)
+            }
+        }
+
         @Volatile
         private var instance: QuipuDatabase? = null
 
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 
         fun get(context: Context): QuipuDatabase =
             instance ?: synchronized(this) {
@@ -88,4 +100,9 @@ private val MIGRATION_3_4_SQL = listOf(
     "CREATE TABLE IF NOT EXISTS `income_sources` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `kind` TEXT NOT NULL, `currencyCode` TEXT NOT NULL, `fixedAmountMinor` INTEGER, `hourlyRateMinor` INTEGER, `plannedMinutesPerMonth` INTEGER, `active` INTEGER NOT NULL DEFAULT 1, `isDemo` INTEGER NOT NULL DEFAULT 0)",
     "CREATE TABLE IF NOT EXISTS `declared_balances` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `currencyCode` TEXT NOT NULL, `amountMinor` INTEGER NOT NULL, `epochDay` INTEGER NOT NULL)",
     "CREATE INDEX IF NOT EXISTS `index_declared_balances_currencyCode` ON `declared_balances` (`currencyCode`)",
+)
+
+/** SQL de la migración 4 -> 5, idéntico al que Room genera en schemas/.../5.json. */
+private val MIGRATION_4_5_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `savings_goals` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `targetMinor` INTEGER NOT NULL, `currencyCode` TEXT NOT NULL, `createdEpochDay` INTEGER NOT NULL, `deadlineEpochDay` INTEGER, `status` TEXT NOT NULL, `completedEpochDay` INTEGER, `isDemo` INTEGER NOT NULL DEFAULT 0)",
 )

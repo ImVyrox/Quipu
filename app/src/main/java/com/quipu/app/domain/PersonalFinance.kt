@@ -27,8 +27,19 @@ enum class MovementType {
 
     /** Traspaso de un objetivo de ahorro al disponible. */
     SAVING_WITHDRAWAL,
+
+    /**
+     * Ahorro inicial: dinero que ya estaba ahorrado fuera de Quipu al crear el objetivo.
+     * Suma al ahorro (y al total) sin salir del disponible y sin ser un ingreso. Como mucho
+     * uno por objetivo, y siempre registrado por el usuario de forma explícita.
+     */
+    SAVING_OPENING,
     ;
 
+    /** Movimiento de un objetivo de ahorro (aportación, retiro o ahorro inicial). */
+    val isSaving: Boolean get() = this == SAVING_DEPOSIT || this == SAVING_WITHDRAWAL || this == SAVING_OPENING
+
+    /** Traspaso entre el disponible y un objetivo: no crea ni destruye dinero. */
     val isTransfer: Boolean get() = this == SAVING_DEPOSIT || this == SAVING_WITHDRAWAL
 }
 
@@ -114,13 +125,32 @@ data class IncomeSource(
     val active: Boolean = true,
 )
 
-/** Objetivo de ahorro. Su saldo sale de los traspasos ([Ledger.goalBalance]), no se guarda. */
+/** Estado de un objetivo. Se guarda por nombre: no renombres las constantes. */
+enum class GoalStatus(val label: String) {
+    /** Admite aportaciones y retiros. */
+    ACTIVE("Activo"),
+
+    /** En pausa: no admite aportaciones; sí retiros. */
+    PAUSED("En pausa"),
+
+    /** Completado por el usuario: no admite aportaciones; sí retiros (para usar el dinero). */
+    COMPLETED("Completado"),
+}
+
+/**
+ * Objetivo de ahorro. Lo acumulado no se guarda: sale de sus movimientos
+ * ([Ledger.goalBalance]), así el historial y el saldo nunca se contradicen.
+ */
 data class SavingsGoal(
     val id: Long,
     val name: String,
     val currencyCode: String,
     val targetMinor: Long,
+    val createdDate: LocalDate,
     val deadline: LocalDate? = null,
+    val description: String = "",
+    val status: GoalStatus = GoalStatus.ACTIVE,
+    val completedDate: LocalDate? = null,
 )
 
 /**

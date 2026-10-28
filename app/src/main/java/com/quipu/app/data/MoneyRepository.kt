@@ -2,11 +2,15 @@ package com.quipu.app.data
 
 import androidx.room.withTransaction
 import com.quipu.app.domain.DeclaredBalance
+import com.quipu.app.domain.GoalStatus
 import com.quipu.app.domain.IncomeKind
 import com.quipu.app.domain.IncomeSource
+import com.quipu.app.domain.Ledger
 import com.quipu.app.domain.Money
 import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementType
+import com.quipu.app.domain.SavingsGoal
+import com.quipu.app.domain.TransferError
 import java.time.LocalDate
 import java.time.YearMonth
 import kotlinx.coroutines.flow.Flow
@@ -16,8 +20,11 @@ import kotlinx.coroutines.flow.map
 /** Ya hay un ingreso de esa fuente fija en ese mes: se rechaza para no contarlo dos veces. */
 class DuplicateIncomeException(val month: YearMonth) : IllegalStateException("Ingreso fijo duplicado en $month")
 
+/** Movimiento de ahorro rechazado por la política contable ([Ledger]). */
+class SavingRejectedException(val error: TransferError) : IllegalStateException(error.message)
+
 /**
- * Ingresos, gastos y dinero declarado. Separado de [QuipuRepository] (tareas y préstamos)
+ * Ingresos, gastos, objetivos de ahorro y dinero declarado. Separado de [QuipuRepository] (tareas y préstamos)
  * porque son datos independientes: los préstamos no cambian el saldo.
  */
 class MoneyRepository(
@@ -27,6 +34,7 @@ class MoneyRepository(
     private val movementDao = database.movementDao()
     private val sourceDao = database.incomeSourceDao()
     private val declaredDao = database.declaredBalanceDao()
+    private val goalDao = database.savingsGoalDao()
 
     fun observeMovements(): Flow<List<Movement>> =
         movementDao.observeAll().map { list -> list.map { it.toDomain() } }
@@ -81,7 +89,110 @@ class MoneyRepository(
         movementDao.update(stored.copy(pending = false, epochDay = date.toEpochDay()))
     }
 
-    suspend fun deleteMovement(id: Long) = movementDao.deleteById(id)
+    /**
+     * Borra un movimiento. Un movimiento de ahorro solo se borra si su objetivo existe y lo
+     * ahorrado en él no queda en negativo ([SavingRejectedException]).
+     */
+    suspend fun deleteMovement(id: Long) = database.withTransaction {
+        val stored = movementDao.getById(id) ?: return@withTransaction
+        if (stored.type.isSaving) {
+            // El historial de un objetivo eliminado queda fijo: borrar su retiro de cierre
+            // haría reaparecer dinero ahorrado en un objetivo que ya no existe.
+            if (stored.goalId == null || goalDao.getById(stored.goalId) == null) {
+                throw SavingRejectedException(TransferError.GOAL_DELETED)
+            }
+            Ledger.validateRemoval(stored.toDomain(), allMovements())?.let { throw SavingRejectedException(it) }
+        }
+        movementDao.deleteById(id)
+    }
+
+    private suspend fun allMovements(): List<Movement> = movementDao.getAll().map { it.toDomain() }
+
+    // ---- Objetivos de ahorro ----
+
+    fun observeGoals(): Flow<List<SavingsGoal>> =
+        goalDao.observeAll().map { list -> list.map { it.toDomain() } }
+
+    /**
+     * Crea (id 0) o actualiza un objetivo. Su moneda no puede cambiar si ya tiene
+     * movimientos: lo ahorrado quedaría en una moneda distinta a la del objetivo.
+     */
+    suspend fun saveGoal(goal: SavingsGoal): Long = database.withTransaction {
+        require(goal.targetMinor in 1..Money.MAX_MINOR) { "Importe fuera de rango" }
+        if (goal.id == 0L) {
+            goalDao.insert(goal.copy(status = GoalStatus.ACTIVE, completedDate = null).toEntity())
+        } else {
+            val stored = goalDao.getById(goal.id) ?: return@withTransaction 0L
+            val hasMovements = movementDao.getForGoal(goal.id).isNotEmpty()
+            check(stored.currencyCode == goal.currencyCode || !hasMovements) { "La moneda de un objetivo con movimientos no cambia" }
+            // El estado y la creación se cambian con setGoalStatus; aquí se conservan.
+            goalDao.update(
+                goal.toEntity(isDemo = stored.isDemo).copy(
+                    createdEpochDay = stored.createdEpochDay,
+                    status = stored.status,
+                    completedEpochDay = stored.completedEpochDay,
+                ),
+            )
+            goal.id
+        }
+    }
+
+    /** Activa, pausa o completa un objetivo. Completar guarda la fecha; los otros estados la quitan. */
+    suspend fun setGoalStatus(id: Long, status: GoalStatus, today: LocalDate) = database.withTransaction {
+        val stored = goalDao.getById(id) ?: return@withTransaction
+        goalDao.update(
+            stored.copy(
+                status = status,
+                completedEpochDay = if (status == GoalStatus.COMPLETED) today.toEpochDay() else null,
+            ),
+        )
+    }
+
+    /**
+     * Registra una aportación, un retiro o el ahorro inicial de un objetivo, tras comprobar
+     * la política contable con los datos guardados (en la misma transacción, así dos
+     * registros seguidos no pueden saltarse los límites). Devuelve el id del movimiento.
+     */
+    suspend fun addSaving(
+        goalId: Long,
+        type: MovementType,
+        amountMinor: Long,
+        date: LocalDate,
+        description: String = "",
+    ): Long = database.withTransaction {
+        require(type.isSaving) { "No es un movimiento de ahorro: $type" }
+        val goal = goalDao.getById(goalId)?.toDomain() ?: throw IllegalArgumentException("El objetivo no existe")
+        val movements = allMovements()
+        val error = if (type == MovementType.SAVING_OPENING) {
+            Ledger.validateOpening(amountMinor, goal, movements)
+        } else {
+            Ledger.validateTransfer(type, amountMinor, goal.currencyCode, goal, movements)
+        }
+        error?.let { throw SavingRejectedException(it) }
+        val movement = Movement(
+            id = 0,
+            type = type,
+            amountMinor = amountMinor,
+            currencyCode = goal.currencyCode,
+            date = date,
+            description = description.trim(),
+            goalId = goalId,
+        )
+        movementDao.insert(movement.toEntity(createdAtEpochSecond = nowEpochSecond()))
+    }
+
+    /**
+     * Elimina un objetivo. Si tiene dinero ahorrado, antes se registra un retiro que lo
+     * devuelve al disponible: eliminar un objetivo nunca hace desaparecer dinero. Su
+     * historial se conserva. Devuelve el importe devuelto al disponible.
+     */
+    suspend fun deleteGoal(id: Long, today: LocalDate): Long = database.withTransaction {
+        val goal = goalDao.getById(id)?.toDomain() ?: return@withTransaction 0L
+        val closing = Ledger.closingWithdrawal(goal, allMovements(), today)
+        closing?.let { movementDao.insert(it.toEntity(createdAtEpochSecond = nowEpochSecond())) }
+        goalDao.deleteById(id)
+        closing?.amountMinor ?: 0L
+    }
 
     suspend fun saveIncomeSource(source: IncomeSource): Long =
         if (source.id == 0L) {
@@ -117,11 +228,15 @@ class MoneyRepository(
     // ---- Datos de demostración (opcionales) ----
 
     fun observeDemoCount(): Flow<Int> =
-        combine(movementDao.observeDemoCount(), sourceDao.observeDemoCount()) { m, s -> m + s }
+        combine(movementDao.observeDemoCount(), sourceDao.observeDemoCount(), goalDao.observeDemoCount()) { m, s, g -> m + s + g }
 
     suspend fun loadDemoData(today: LocalDate) = database.withTransaction {
         val sourceId = sourceDao.insert(DemoData.hourlySource())
         DemoData.movements(today, sourceId).forEach {
+            movementDao.insert(it.toEntity(createdAtEpochSecond = nowEpochSecond(), isDemo = true))
+        }
+        val goalId = goalDao.insert(DemoData.goal(today))
+        DemoData.goalMovements(today, goalId).forEach {
             movementDao.insert(it.toEntity(createdAtEpochSecond = nowEpochSecond(), isDemo = true))
         }
     }
@@ -129,5 +244,6 @@ class MoneyRepository(
     suspend fun removeDemoData() = database.withTransaction {
         movementDao.deleteDemo()
         sourceDao.deleteDemo()
+        goalDao.deleteDemo()
     }
 }
