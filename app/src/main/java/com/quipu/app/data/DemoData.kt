@@ -2,6 +2,10 @@ package com.quipu.app.data
 
 import com.quipu.app.domain.DebtStatus
 import com.quipu.app.domain.DebtType
+import com.quipu.app.domain.ExpenseCategory
+import com.quipu.app.domain.IncomePlanner
+import com.quipu.app.domain.Movement
+import com.quipu.app.domain.MovementType
 import com.quipu.app.domain.PersonKey
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -49,6 +53,53 @@ object DemoData {
             debt(DebtType.OWED_TO_ME, "Luis Mamani (ejemplo)", 8_050, 6, 10, "Almuerzo"),
             debt(DebtType.I_OWE, "Marta Quispe (ejemplo)", 22_000, 12, 5, "Libros de la universidad"),
             debt(DebtType.OWED_TO_ME, "Ana Rojas (ejemplo)", 5_000, 40, null, "Entradas", DebtStatus.SETTLED),
+        )
+    }
+
+    /** Fuente por horas del ejemplo principal: 18 BOB/h × 42 h = 756 BOB previstos al mes. */
+    fun hourlySource(): IncomeSourceEntity = IncomeSourceEntity(
+        name = "Clases particulares (ejemplo)",
+        kind = IncomePlanner.EXAMPLE_HOURLY.kind,
+        currencyCode = IncomePlanner.EXAMPLE_HOURLY.currencyCode,
+        fixedAmountMinor = null,
+        hourlyRateMinor = IncomePlanner.EXAMPLE_HOURLY.hourlyRateMinor,
+        plannedMinutesPerMonth = IncomePlanner.EXAMPLE_HOURLY.plannedMinutesPerMonth,
+        isDemo = true,
+    )
+
+    /** Movimientos del mes en curso; el primer día del mes como mínimo para no salir del periodo. */
+    fun movements(today: LocalDate, hourlySourceId: Long): List<Movement> {
+        val first = today.withDayOfMonth(1)
+        fun day(offset: Long) = maxOf(first, today.minusDays(offset))
+        fun hours(minutes: Int, offset: Long, pending: Boolean) = Movement(
+            id = 0,
+            type = MovementType.INCOME,
+            amountMinor = IncomePlanner.amountForMinutes(1_800, minutes),
+            currencyCode = "BOB",
+            date = day(offset),
+            description = "Clases (ejemplo)",
+            pending = pending,
+            incomeSourceId = hourlySourceId,
+            workDate = day(offset),
+            workedMinutes = minutes,
+        )
+        fun expense(minor: Long, category: ExpenseCategory, offset: Long, note: String) = Movement(
+            id = 0,
+            type = MovementType.EXPENSE,
+            amountMinor = minor,
+            currencyCode = "BOB",
+            date = day(offset),
+            description = note,
+            category = category,
+        )
+        return listOf(
+            hours(10 * 60, 9, pending = false),
+            hours(8 * 60, 4, pending = false),
+            hours(6 * 60, 1, pending = true),
+            expense(4_500, ExpenseCategory.FOOD, 8, "Almuerzo (ejemplo)"),
+            expense(1_200, ExpenseCategory.TRANSPORT, 5, "Micro (ejemplo)"),
+            expense(9_000, ExpenseCategory.STUDIES, 3, "Fotocopias y libro (ejemplo)"),
+            expense(3_000, ExpenseCategory.SUBSCRIPTIONS, 2, ""),
         )
     }
 }

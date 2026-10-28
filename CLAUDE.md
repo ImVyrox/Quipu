@@ -18,6 +18,7 @@ Instrucciones permanentes para trabajar en este repositorio. Quipu es una app An
 | Room (runtime, ktx, compiler vía KSP) | 2.6.1 |
 | kotlinx-coroutines-android | 1.9.0 |
 | JUnit | 4.13.2 |
+| androidx.test runner / ext-junit · room-testing (solo `androidTest`) | 1.6.2 / 1.2.1 · 2.6.1 |
 | JVM target | 17 (`sourceCompatibility`/`jvmTarget`) |
 | SDK | `minSdk 30` (Android 11), `targetSdk 35`, `compileSdk 35` |
 | App | `applicationId com.quipu.app`, `versionCode 2`, `versionName 1.1.0`; debug añade `.debug` / `-debug` |
@@ -32,27 +33,34 @@ Capas simples, sin inyección de dependencias:
 
 ```
 app/src/main/java/com/quipu/app/
-  QuipuApplication.kt   Crea el QuipuRepository (lazy) y un appScope que, al cambiar tareas,
+  QuipuApplication.kt   Crea QuipuRepository y MoneyRepository (lazy) y un appScope que, al cambiar tareas,
                         registros o ajustes de recordatorios, llama a ReminderEngine.sync (con debounce 500 ms).
   MainActivity.kt       Splash, edge-to-edge, QuipuTheme y QuipuRoot.
   domain/               Kotlin puro, sin Android: modelos (Models.kt, Settings.kt), Money (centavos),
                         PersonKey (normalización de nombres), DebtLogic, TaskLogic, Validation,
-                        ReminderPlanner. Es la capa cubierta por pruebas.
+                        ReminderPlanner y finanzas personales (PersonalFinance.kt, Ledger,
+                        IncomePlanner, RecurringPlanner, FinanceValidation, Motivation).
+                        Es la capa cubierta por pruebas.
   data/                 Room: Entities.kt, Daos.kt, QuipuDatabase.kt (versión + migraciones),
                         Mappers.kt (entidad <-> dominio), QuipuRepository.kt, SettingsStore.kt
                         (SharedPreferences "quipu_settings" expuestas como StateFlow), DemoData.kt.
+                        Ingresos y gastos: MoneyEntities.kt, MoneyDaos.kt, MoneyRepository.kt.
   reminders/            QuipuNotifications (canal + publicar), ReminderEngine (alarma única del
                         próximo aviso), ReminderReceivers (ReminderReceiver, SystemEventsReceiver).
   ui/                   QuipuRoot (Scaffold + NavHost + NavigationBar), BaseViewModel, Formats,
                         theme/Theme.kt, components/Components.kt y una carpeta por pantalla:
-                        tasks/, finance/, summary/, settings/ (Screen + ViewModel).
-app/src/test/java/com/quipu/app/domain/   Pruebas unitarias JUnit 4 del dominio.
-app/schemas/com.quipu.app.data.QuipuDatabase/   Esquemas Room exportados: 1.json, 2.json, 3.json.
+                        tasks/, money/ (Dinero: MoneyScreen, MoneyForms, MoneyViewModel), finance/
+                        (préstamos), summary/, settings/ (Screen + ViewModel).
+app/src/test/java/com/quipu/app/          Pruebas unitarias JUnit 4 (domain/ y ui/Formats).
+app/src/androidTest/java/com/quipu/app/data/   Pruebas instrumentadas: MoneyRepositoryTest (Room) y
+                        MigrationTest (MigrationTestHelper con los esquemas como assets).
+app/schemas/com.quipu.app.data.QuipuDatabase/   Esquemas Room exportados: 1.json … 4.json.
+docs/finanzas-personales.md   Diseño y reglas del módulo de finanzas personales.
 ```
 
 - **Flujo de datos**: DAO (`Flow`) → `QuipuRepository` (mapea a modelos de dominio) → ViewModel (`combine(...).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())`) → pantalla (`collectAsStateWithLifecycle()`).
-- **ViewModels**: heredan de `ui/BaseViewModel` (`AndroidViewModel`), que obtiene el repositorio desde `QuipuApplication` y ofrece `launchAction(success) { ... }` y `say(...)` para mensajes en el `SnackbarHost` compartido. Las pantallas los obtienen con `viewModel()`. Las acciones de escritura pasan por `launchAction`; usa `viewModelScope.launch` con `try/catch` + `say(...)` solo cuando el mensaje depende del resultado (como `FinanceViewModel.addPayment`).
-- **Navegación**: `ui/QuipuRoot.kt`. Rutas como strings: el enum `Destination` (`tasks`, `finance`, `summary`) define la barra inferior; `settings` se abre desde el engranaje de cada pantalla y oculta la barra. La vista de una persona en Finanzas es estado interno de `FinanceScreen`, no una ruta. Destino inicial: Tareas.
+- **ViewModels**: heredan de `ui/BaseViewModel` (`AndroidViewModel`), que obtiene `repository` (tareas, préstamos, ajustes) y `money` (ingresos y gastos) desde `QuipuApplication` y ofrece `launchAction(success) { ... }` y `say(...)` para mensajes en el `SnackbarHost` compartido. Las pantallas los obtienen con `viewModel()`. Las acciones de escritura pasan por `launchAction`; usa `viewModelScope.launch` con `try/catch` + `say(...)` solo cuando el mensaje depende del resultado (como `FinanceViewModel.addPayment`).
+- **Navegación**: `ui/QuipuRoot.kt`. Rutas como strings: el enum `Destination` (`tasks`, `money`, `finance` —etiqueta «Préstamos»—, `summary`) define la barra inferior; `settings` se abre desde el engranaje de cada pantalla y oculta la barra. La vista de una persona en Finanzas es estado interno de `FinanceScreen`, no una ruta. Destino inicial: Tareas.
 - **Lógica de negocio en `domain/`**, no en composables ni en ViewModels: así se puede probar sin Android. Las reglas de integridad que tocan varias tablas (abonos, saldar, borrar en cascada) viven en `QuipuRepository` dentro de `database.withTransaction { }`.
 
 ## Comandos
@@ -61,12 +69,14 @@ app/schemas/com.quipu.app.data.QuipuDatabase/   Esquemas Room exportados: 1.json
 ./gradlew testDebugUnitTest   # pruebas unitarias (JUnit, solo dominio)
 ./gradlew assembleDebug       # APK debug -> app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease     # APK release (firmado solo si existe keystore.properties)
+./gradlew connectedDebugAndroidTest   # pruebas instrumentadas (Room y migraciones) en el emulador/teléfono
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 - Requiere JDK 17+ y el Android SDK con la plataforma API 35 (`ANDROID_HOME` o `local.properties` con `sdk.dir`). La primera compilación necesita Internet para descargar Gradle y dependencias.
 - Una sola prueba: `./gradlew testDebugUnitTest --tests "com.quipu.app.domain.MoneyTest"`.
-- No hay pruebas instrumentadas (`androidTest`) ni de UI; tampoco hay ktlint/detekt configurados. `kotlin.code.style=official` en `gradle.properties`.
+- **Cuidado**: `connectedDebugAndroidTest` instala y al terminar **desinstala** `com.quipu.app.debug`, borrando sus datos en ese dispositivo. No lo ejecutes en un teléfono con datos reales del usuario; úsalo en el emulador y reinstala después con `adb install -r`.
+- No hay pruebas de UI; tampoco hay ktlint/detekt configurados. `kotlin.code.style=official` en `gradle.properties`.
 
 ## Convenciones de Kotlin
 
@@ -98,8 +108,10 @@ Objetivo: interfaz **moderna, minimalista y consistente**, pensada para teléfon
 
 Los datos del usuario solo existen en su teléfono: `allowBackup="false"`, sin nube. **Perder datos es irreversible.**
 
-- Base de datos `quipu.db`, `QuipuDatabase` versión **3**, `exportSchema = true`, esquemas en `app/schemas/` (KSP `room.schemaLocation`). Tablas: `tasks`, `debts`, `debt_payments`.
-- Historial: v1 → v2 (`MIGRATION_1_2`: columnas `isDaily`, `lastCompletedEpochDay` en `tasks`); v2 → v3 (`MIGRATION_2_3`: tabla `debt_payments` + índice `index_debt_payments_debtId`).
+- Base de datos `quipu.db`, `QuipuDatabase` versión **4**, `exportSchema = true`, esquemas en `app/schemas/` (KSP `room.schemaLocation`). Tablas: `tasks`, `debts`, `debt_payments`, `movements`, `income_sources`, `declared_balances`.
+- Historial: v1 → v2 (`MIGRATION_1_2`: columnas `isDaily`, `lastCompletedEpochDay` en `tasks`); v2 → v3 (`MIGRATION_2_3`: tabla `debt_payments` + índice `index_debt_payments_debtId`); v3 → v4 (`MIGRATION_3_4`: tablas `movements`, `income_sources`, `declared_balances` y sus índices; el SQL se copió de `4.json`).
+- Registra cada migración nueva en `QuipuDatabase.ALL_MIGRATIONS` y añade un caso a `MigrationTest` (`runMigrationsAndValidate` compara con el JSON exportado).
+- Índices únicos de `movements`: (`incomeSourceId`, `period`) —un ingreso fijo por fuente y mes— y (`recurringPaymentId`, `period`) —un pago recurrente por mes—. No los quites: evitan duplicados aunque falle la validación de la app.
 - Para cualquier cambio en una `@Entity`:
   1. Sube `version` en `@Database`.
   2. Escribe una `Migration(n, n+1)` explícita en `QuipuDatabase.companion`, con KDoc que diga qué cambia y que no borra datos, y regístrala en `.addMigrations(...)`.
@@ -107,7 +119,8 @@ Los datos del usuario solo existen en su teléfono: `allowBackup="false"`, sin n
   4. Compila para regenerar `app/schemas/.../<n+1>.json` y **commitea el nuevo JSON**. No edites ni borres los JSON existentes.
   5. Columnas nuevas no nulas: con `DEFAULT` en SQL y `@ColumnInfo(defaultValue = ...)` en la entidad.
 - **Prohibido**: `fallbackToDestructiveMigration()`, borrar/renombrar tablas o columnas sin migración de copia, bajar la versión, o modificar una migración ya publicada.
-- Datos de demostración: siempre con `isDemo = true`; `removeDemoData()` borra solo esos (y sus abonos). Nunca mezcles datos demo con reales.
+- Datos de demostración: siempre con `isDemo = true`; `removeDemoData()` (en ambos repositorios) borra solo esos (y sus abonos). Nunca mezcles datos demo con reales.
+- Finanzas personales: el saldo se calcula solo con movimientos no pendientes (`Ledger`); lo previsto y lo pendiente se muestran aparte. Cada movimiento guarda su moneda y nunca se suman monedas distintas (`CurrencyAmounts`). Los préstamos no afectan al saldo. No hay saldo inicial: el «dinero real declarado» (`declared_balances`) solo se compara, no crea movimientos. Una fuente con ingresos se archiva (`active = false`), no se borra. Ver `docs/finanzas-personales.md`.
 - Integridad de abonos: un abono no puede superar lo que falta; si cubre el total, el registro pasa a `SETTLED`; solo se borran abonos de registros pendientes; al borrar un registro se borran sus abonos en la misma transacción. Mantén estas reglas en `QuipuRepository` dentro de `withTransaction`.
 - Actualiza el README (sección «Privacidad y datos») cuando añadas una versión de la base de datos.
 

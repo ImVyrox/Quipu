@@ -20,7 +20,7 @@ class RecurringPlannerTest {
 
     private fun paid(id: Long, period: YearMonth, payment: RecurringPayment = internet) = Movement(
         id, MovementType.EXPENSE, payment.amountMinor, payment.currencyCode, RecurringPlanner.dueDate(payment, period),
-        recurringPaymentId = payment.id, recurringPeriod = period,
+        recurringPaymentId = payment.id, period = period,
     )
 
     @Test

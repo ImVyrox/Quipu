@@ -1,6 +1,9 @@
 # Diseño técnico — Finanzas personales (fase 1)
 
-Estado: **diseño + lógica de dominio pura con pruebas**. Todavía no hay tablas, DAO, repositorio ni pantallas: la base de datos sigue en la **versión 3** y la app funciona igual que antes.
+Estado:
+- **Fase 1**: diseño y lógica de dominio pura con pruebas.
+- **Fase 2**: ingresos, gastos, saldo y dinero declarado, implementados (Room v4, pantalla **Dinero**).
+- **Pendiente**: objetivos de ahorro, pagos recurrentes y sus recordatorios.
 
 ## Principios
 
@@ -49,9 +52,17 @@ Pruebas: `IncomePlannerTest`, `LedgerTest`, `RecurringPlannerTest`, `MotivationT
 - Avisos de pagos recurrentes sin pagar, `leadDays` antes a una hora del día (igual que las deudas). Como mucho uno por pago en cada ventana. Usa claves `recurring-<id>-<yyyy-MM>`.
 - `Motivation.pick` elige, por prioridad: objetivo cumplido → hito de 75/50/25 % → ahorro este mes → ingresos mayores que gastos en alguna moneda → mensaje genérico que rota cada día. Nunca suma monedas distintas.
 
-## Modelo de datos propuesto (Room v4, **no aplicado todavía**)
+## Modelo de datos
 
-Se aplicará en la fase que construya la primera pantalla que guarde estos datos. Hasta entonces no se sube la versión.
+**Room v4 (fase 2, aplicado)**: `movements`, `income_sources` y `declared_balances`. Además de lo propuesto, `movements` tiene:
+- `category`: categoría del gasto.
+- `pending`: por cobrar o por pagar; no cuenta en el saldo.
+- `workEpochDay` y `workedMinutes`: horas anotadas con el cobro.
+- `period`: mes saldado; sirve para pagos recurrentes y para ingresos fijos.
+
+Hay índices únicos (`incomeSourceId`, `period`) y (`recurringPaymentId`, `period`). `declared_balances` guarda el dinero real que declara el usuario; no es un movimiento.
+
+**Pendiente (v5)**: `savings_goals` y `recurring_payments`, según la propuesta de abajo.
 
 ```
 income_sources

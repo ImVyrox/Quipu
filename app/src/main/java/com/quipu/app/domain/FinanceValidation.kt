@@ -6,8 +6,21 @@ data class MovementFormErrors(
     val amount: String? = null,
     val date: String? = null,
     val description: String? = null,
+    val category: String? = null,
 ) {
-    val hasErrors: Boolean get() = amount != null || date != null || description != null
+    val hasErrors: Boolean get() = amount != null || date != null || description != null || category != null
+}
+
+data class IncomeFormErrors(
+    val amount: String? = null,
+    val hours: String? = null,
+    /** Fecha del ingreso (o día trabajado en los ingresos por horas). */
+    val date: String? = null,
+    val receivedDate: String? = null,
+    val description: String? = null,
+) {
+    val hasErrors: Boolean
+        get() = amount != null || hours != null || date != null || receivedDate != null || description != null
 }
 
 data class IncomeSourceFormErrors(
@@ -46,6 +59,47 @@ object FinanceValidators {
             date = if (date == null) "Elige la fecha" else null,
             description = if (description.length > Limits.NOTE_MAX) "Máximo ${Limits.NOTE_MAX} caracteres" else null,
         )
+
+    /** Gasto: importe, fecha y categoría obligatorios; descripción opcional. */
+    fun validateExpense(
+        amountText: String,
+        date: LocalDate?,
+        category: ExpenseCategory?,
+        description: String,
+    ): MovementFormErrors =
+        validateMovement(amountText, date, description).copy(
+            category = if (category == null) "Elige una categoría" else null,
+        )
+
+    /**
+     * Ingreso. Por horas ([hourly]) se piden las horas y el día trabajado (el importe se
+     * calcula); si no, el importe y la fecha. Si ya se cobró ([received]) se pide la fecha
+     * de cobro, que no puede ser anterior al día trabajado.
+     */
+    fun validateIncome(
+        hourly: Boolean,
+        amountText: String,
+        hoursText: String,
+        date: LocalDate?,
+        received: Boolean,
+        receivedDate: LocalDate?,
+        description: String,
+    ): IncomeFormErrors = IncomeFormErrors(
+        amount = if (hourly) null else amountError(amountText),
+        hours = if (hourly) hoursError(hoursText, "Escribe las horas trabajadas") else null,
+        date = if (date == null) (if (hourly) "Elige el día trabajado" else "Elige la fecha") else null,
+        receivedDate = when {
+            !hourly || !received -> null
+            receivedDate == null -> "Elige la fecha de cobro"
+            date != null && receivedDate.isBefore(date) -> "No puede ser anterior al día trabajado"
+            else -> null
+        },
+        description = if (description.length > Limits.NOTE_MAX) "Máximo ${Limits.NOTE_MAX} caracteres" else null,
+    )
+
+    /** Dinero declarado: admite cero (por ejemplo, "hoy no tengo nada en dólares"). */
+    fun validateDeclared(amountText: String): String? =
+        if (Money.parseToMinor(amountText) == 0L) null else amountError(amountText, "Escribe cuánto tienes")
 
     fun validateIncomeSource(
         name: String,
@@ -100,8 +154,8 @@ object FinanceValidators {
         }
     }
 
-    private fun hoursError(text: String): String? {
-        if (text.isBlank()) return "Escribe las horas al mes"
+    private fun hoursError(text: String, emptyMessage: String = "Escribe las horas al mes"): String? {
+        if (text.isBlank()) return emptyMessage
         val minutes = IncomePlanner.parseHoursToMinutes(text)
         return when {
             minutes == null -> "Horas no válidas. Usa números, por ejemplo 42 o 42,5"

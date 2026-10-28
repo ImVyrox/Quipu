@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">Quipu</string>
     <string name="nav_tasks">Tareas</string>
-    <string name="nav_finance">Finanzas</string>
+    <string name="nav_money">Dinero</string>
+    <string name="nav_finance">Préstamos</string>
     <string name="nav_summary">Resumen</string>
 </resources>

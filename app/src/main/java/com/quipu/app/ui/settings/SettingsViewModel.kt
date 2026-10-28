@@ -9,6 +9,7 @@ import com.quipu.app.domain.Appearance
 import com.quipu.app.domain.ReminderSettings
 import com.quipu.app.reminders.ReminderEngine
 import com.quipu.app.ui.BaseViewModel
+import java.time.LocalDate
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -31,7 +32,7 @@ class SettingsViewModel(application: Application) : BaseViewModel(application) {
         settings.appearance,
         settings.reminders,
         settings.sound,
-        repository.observeDemoCount(),
+        combine(repository.observeDemoCount(), money.observeDemoCount()) { a, b -> a + b },
     ) { currency, appearance, reminders, sound, demoCount ->
         SettingsUiState(currency, appearance, reminders, sound, demoCount)
     }.stateIn(
@@ -55,10 +56,16 @@ class SettingsViewModel(application: Application) : BaseViewModel(application) {
     fun sendTestNotification() = ReminderEngine.sendTest(getApplication())
 
     fun loadDemoData() {
-        launchAction("Datos de demostración cargados") { repository.loadDemoData() }
+        launchAction("Datos de demostración cargados") {
+            repository.loadDemoData()
+            money.loadDemoData(LocalDate.now())
+        }
     }
 
     fun removeDemoData() {
-        launchAction("Datos de demostración eliminados") { repository.removeDemoData() }
+        launchAction("Datos de demostración eliminados") {
+            repository.removeDemoData()
+            money.removeDemoData()
+        }
     }
 }

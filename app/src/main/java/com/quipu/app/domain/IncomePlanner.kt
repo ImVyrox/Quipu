@@ -4,11 +4,21 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.YearMonth
 
-/** Previsto frente a recibido de una fuente en un mes. [projectedMinor] es null si no hay previsión (VARIABLE). */
+/**
+ * Situación de una fuente en un mes: lo previsto (dinero y horas), lo trabajado, lo
+ * recibido y lo que falta cobrar. [projectedMinor] es null si no hay previsión (VARIABLE).
+ */
 data class IncomeProgress(
     val source: IncomeSource,
     val projectedMinor: Long?,
+    /** Dinero ya recibido en el mes (por fecha de cobro). */
     val receivedMinor: Long,
+    /** Horas previstas al mes (solo HOURLY), en minutos. */
+    val plannedMinutes: Int? = null,
+    /** Horas trabajadas en el mes (por día trabajado), cobradas o no, en minutos. */
+    val workedMinutes: Int = 0,
+    /** Ingresos anotados del mes que aún no se cobraron. */
+    val toCollectMinor: Long = 0,
 ) {
     /** Lo que falta por recibir de lo previsto (nunca negativo). */
     val pendingMinor: Long? get() = projectedMinor?.let { (it - receivedMinor).coerceAtLeast(0L) }
@@ -53,22 +63,52 @@ object IncomePlanner {
         }
     }
 
-    /** Recibido de una fuente en un mes (solo movimientos INCOME en la moneda de la fuente). */
+    /** Recibido de una fuente en un mes (ingresos ya cobrados, por fecha de cobro, en la moneda de la fuente). */
     fun receivedIn(source: IncomeSource, movements: List<Movement>, month: YearMonth): Long =
-        Ledger.distinct(movements)
-            .filter {
-                it.type == MovementType.INCOME &&
-                    it.incomeSourceId == source.id &&
-                    it.currencyCode == source.currencyCode &&
-                    YearMonth.from(it.date) == month
-            }
+        Ledger.settled(movements)
+            .filter { isIncomeOf(it, source) && YearMonth.from(it.date) == month }
             .sumOf { it.amountMinor }
 
-    /** Previsto y recibido de cada fuente activa en [month]. */
+    /** Ingresos de la fuente anotados en el mes que aún no se cobraron. */
+    fun toCollectIn(source: IncomeSource, movements: List<Movement>, month: YearMonth): Long =
+        Ledger.distinct(movements)
+            .filter { it.pending && isIncomeOf(it, source) && YearMonth.from(it.workDate ?: it.date) == month }
+            .sumOf { it.amountMinor }
+
+    /** Minutos trabajados en el mes según el día trabajado de cada cobro (cobrado o no). */
+    fun workedMinutesIn(source: IncomeSource, movements: List<Movement>, month: YearMonth): Int =
+        Ledger.distinct(movements)
+            .filter { isIncomeOf(it, source) && YearMonth.from(it.workDate ?: it.date) == month }
+            .sumOf { it.workedMinutes ?: 0 }
+
+    /** Situación de cada fuente activa en [month]. */
     fun progress(sources: List<IncomeSource>, movements: List<Movement>, month: YearMonth): List<IncomeProgress> =
         sources.filter { it.active }.map { source ->
-            IncomeProgress(source, monthlyProjection(source), receivedIn(source, movements, month))
+            IncomeProgress(
+                source = source,
+                projectedMinor = monthlyProjection(source),
+                receivedMinor = receivedIn(source, movements, month),
+                plannedMinutes = if (source.kind == IncomeKind.HOURLY) source.plannedMinutesPerMonth else null,
+                workedMinutes = workedMinutesIn(source, movements, month),
+                toCollectMinor = toCollectIn(source, movements, month),
+            )
         }
+
+    /**
+     * Ingreso fijo ya anotado para ese mes, si existe. Un ingreso fijo se anota una vez
+     * por mes: cambiar de mes no crea copias y no se puede anotar dos veces el mismo mes.
+     */
+    fun fixedIncomeFor(source: IncomeSource, month: YearMonth, movements: List<Movement>, exceptId: Long = 0): Movement? =
+        if (source.kind != IncomeKind.FIXED) {
+            null
+        } else {
+            Ledger.distinct(movements).firstOrNull {
+                it.id != exceptId && isIncomeOf(it, source) && it.period == month
+            }
+        }
+
+    private fun isIncomeOf(m: Movement, source: IncomeSource) =
+        m.type == MovementType.INCOME && m.incomeSourceId == source.id && m.currencyCode == source.currencyCode
 
     /** Total previsto por moneda de las fuentes activas. Es una previsión, no dinero disponible. */
     fun projectedTotal(sources: List<IncomeSource>): CurrencyAmounts =

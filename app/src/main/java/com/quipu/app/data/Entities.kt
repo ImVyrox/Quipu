@@ -7,6 +7,9 @@ import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
 import com.quipu.app.domain.DebtStatus
 import com.quipu.app.domain.DebtType
+import com.quipu.app.domain.ExpenseCategory
+import com.quipu.app.domain.IncomeKind
+import com.quipu.app.domain.MovementType
 
 @Entity(tableName = "tasks")
 data class TaskEntity(
@@ -68,4 +71,22 @@ class Converters {
 
     @TypeConverter
     fun stringToDebtStatus(value: String): DebtStatus = DebtStatus.valueOf(value)
+
+    @TypeConverter
+    fun movementTypeToString(value: MovementType): String = value.name
+
+    @TypeConverter
+    fun stringToMovementType(value: String): MovementType = MovementType.valueOf(value)
+
+    @TypeConverter
+    fun incomeKindToString(value: IncomeKind): String = value.name
+
+    @TypeConverter
+    fun stringToIncomeKind(value: String): IncomeKind = IncomeKind.valueOf(value)
+
+    @TypeConverter
+    fun expenseCategoryToString(value: ExpenseCategory?): String? = value?.name
+
+    @TypeConverter
+    fun stringToExpenseCategory(value: String?): ExpenseCategory? = value?.let { ExpenseCategory.valueOf(it) }
 }

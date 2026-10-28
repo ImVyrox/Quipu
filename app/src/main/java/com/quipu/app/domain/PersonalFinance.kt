@@ -32,10 +32,23 @@ enum class MovementType {
     val isTransfer: Boolean get() = this == SAVING_DEPOSIT || this == SAVING_WITHDRAWAL
 }
 
+/** Categoría de un gasto. Se guarda por nombre: no renombres las constantes. */
+enum class ExpenseCategory(val label: String) {
+    FOOD("Alimentación"),
+    TRANSPORT("Transporte"),
+    STUDIES("Estudios"),
+    SUBSCRIPTIONS("Suscripciones"),
+    HEALTH("Salud"),
+    OTHER("Otros"),
+}
+
 /**
- * Movimiento de dinero ya ocurrido (confirmado). [amountMinor] es siempre positivo y en
- * centavos; el signo lo da [type]. Un movimiento nunca se modifica para "deshacer" otro:
- * el historial es auditable.
+ * Movimiento de dinero. [amountMinor] es siempre positivo y en centavos; el signo lo da
+ * [type]. Un movimiento nunca se modifica para "deshacer" otro: el historial es auditable.
+ *
+ * Un movimiento [pending] todavía no ocurrió (ingreso por cobrar o gasto por pagar): se
+ * muestra aparte y no cuenta en ningún saldo. Al confirmarlo, [date] pasa a ser el día
+ * real en que se recibió o pagó el dinero.
  */
 data class Movement(
     val id: Long,
@@ -45,13 +58,31 @@ data class Movement(
     val date: LocalDate,
     /** Opcional (puede ir vacía). */
     val description: String = "",
+    /** Solo en gastos. */
+    val category: ExpenseCategory? = null,
+    val pending: Boolean = false,
     /** Fuente de un ingreso, si se registró desde una. */
     val incomeSourceId: Long? = null,
+    /** Ingresos por horas: día trabajado y tiempo trabajado (minutos) que se cobra. */
+    val workDate: LocalDate? = null,
+    val workedMinutes: Int? = null,
     /** Objetivo de ahorro de un traspaso (obligatorio en SAVING_*). */
     val goalId: Long? = null,
-    /** Pago recurrente y mes que salda este gasto: como mucho un movimiento por par. */
+    /** Pago recurrente que salda este gasto. */
     val recurringPaymentId: Long? = null,
-    val recurringPeriod: YearMonth? = null,
+    /**
+     * Mes que salda un pago recurrente o un ingreso fijo. Como mucho hay un movimiento por
+     * pago recurrente y mes, y uno por fuente fija y mes.
+     */
+    val period: YearMonth? = null,
+)
+
+/** Dinero real que el usuario declara tener en una moneda, en una fecha. No es un movimiento. */
+data class DeclaredBalance(
+    val id: Long,
+    val currencyCode: String,
+    val amountMinor: Long,
+    val date: LocalDate,
 )
 
 enum class IncomeKind {

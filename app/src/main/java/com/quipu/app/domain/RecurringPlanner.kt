@@ -44,7 +44,7 @@ data class RecurringReminderSettings(
 /**
  * Vencimientos mensuales de pagos recurrentes. Se generan a partir de la regla (día del
  * mes, inicio y fin), así que no hay registros que duplicar: el pago de un mes es el
- * único gasto con ese [Movement.recurringPaymentId] y [Movement.recurringPeriod].
+ * único gasto con ese [Movement.recurringPaymentId] y [Movement.period].
  * Un vencimiento pendiente no reduce el disponible hasta que se confirma.
  */
 object RecurringPlanner {
@@ -62,7 +62,7 @@ object RecurringPlanner {
     /** Movimiento que paga ese mes, si existe. */
     fun paymentFor(payment: RecurringPayment, period: YearMonth, movements: List<Movement>): Movement? =
         Ledger.distinct(movements).firstOrNull {
-            it.type == MovementType.EXPENSE && it.recurringPaymentId == payment.id && it.recurringPeriod == period
+            it.type == MovementType.EXPENSE && it.recurringPaymentId == payment.id && it.period == period
         }
 
     /**
@@ -113,7 +113,7 @@ object RecurringPlanner {
                 date = paidOn,
                 description = payment.name,
                 recurringPaymentId = payment.id,
-                recurringPeriod = period,
+                period = period,
             ),
         )
     }

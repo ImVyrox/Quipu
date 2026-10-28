@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.quipu.app.QuipuApplication
+import com.quipu.app.data.MoneyRepository
 import com.quipu.app.data.QuipuRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -14,6 +15,8 @@ import kotlinx.coroutines.launch
 abstract class BaseViewModel(application: Application) : AndroidViewModel(application) {
     protected val repository: QuipuRepository =
         getApplication<QuipuApplication>().repository
+    protected val money: MoneyRepository
+        get() = getApplication<QuipuApplication>().money
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages: SharedFlow<String> = _messages.asSharedFlow()

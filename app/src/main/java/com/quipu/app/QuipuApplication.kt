@@ -1,6 +1,7 @@
 package com.quipu.app
 
 import android.app.Application
+import com.quipu.app.data.MoneyRepository
 import com.quipu.app.data.QuipuDatabase
 import com.quipu.app.data.QuipuRepository
 import com.quipu.app.data.SettingsStore
@@ -18,6 +19,9 @@ class QuipuApplication : Application() {
     val repository: QuipuRepository by lazy {
         QuipuRepository(QuipuDatabase.get(this), SettingsStore(this))
     }
+
+    /** Ingresos, gastos y dinero declarado. */
+    val money: MoneyRepository by lazy { MoneyRepository(QuipuDatabase.get(this)) }
 
     /** Vive mientras viva el proceso; para trabajo que no pertenece a una pantalla. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

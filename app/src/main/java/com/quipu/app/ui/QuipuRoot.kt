@@ -25,6 +25,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.quipu.app.R
 import com.quipu.app.ui.finance.FinanceScreen
+import com.quipu.app.ui.money.MoneyScreen
 import com.quipu.app.ui.settings.SettingsScreen
 import com.quipu.app.ui.summary.SummaryScreen
 import com.quipu.app.ui.tasks.TasksScreen
@@ -36,6 +37,7 @@ enum class Destination(
     @DrawableRes val icon: Int,
 ) {
     Tasks("tasks", R.string.nav_tasks, R.drawable.ic_nav_tasks),
+    Money("money", R.string.nav_money, R.drawable.ic_nav_money),
     Finance("finance", R.string.nav_finance, R.drawable.ic_nav_finance),
     Summary("summary", R.string.nav_summary, R.drawable.ic_nav_summary),
 }
@@ -81,6 +83,7 @@ fun QuipuRoot() {
         ) {
             val openSettings = { navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true } }
             composable(Destination.Tasks.route) { TasksScreen(snackbarHostState, onOpenSettings = openSettings) }
+            composable(Destination.Money.route) { MoneyScreen(snackbarHostState, onOpenSettings = openSettings) }
             composable(Destination.Finance.route) { FinanceScreen(snackbarHostState, onOpenSettings = openSettings) }
             composable(Destination.Summary.route) { SummaryScreen(snackbarHostState, onOpenSettings = openSettings) }
             composable(SETTINGS_ROUTE) {

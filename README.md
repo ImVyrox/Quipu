@@ -1,6 +1,6 @@
 # Quipu
 
-App Android personal para gestionar **tareas** y **préstamos/deudas**, 100 % local: sin Internet y sin cuentas. Avisa con notificaciones cuando una tarea o un pago está por vencer.
+App Android personal para gestionar **tareas**, **ingresos y gastos** y **préstamos/deudas**, 100 % local: sin Internet y sin cuentas. Avisa con notificaciones cuando una tarea o un pago está por vencer.
 
 > Un *quipu* era el sistema de cuerdas y nudos con el que en los Andes se llevaban las cuentas.
 
@@ -22,7 +22,19 @@ Hecha con **Kotlin + Jetpack Compose (Material 3) + Room**.
   - Se distinguen con la etiqueta **Diaria** y aparecen primero en la lista.
 - Filtros **Todas / Pendientes / Completadas** y orden por fecha (ascendente o descendente).
 
-### Finanzas (préstamos y deudas)
+### Dinero (ingresos y gastos)
+
+- **Fuentes de ingreso**: fijas (sueldo), variables o **por horas**. Una fuente por horas tiene tarifa y horas previstas al mes; por ejemplo, 18 BOB/h × 42 h = **756 BOB previstos**. La tarifa y las horas se pueden editar.
+- **Anotar horas y cobro**: indicas el día trabajado y las horas, y el importe se calcula solo (6 h × Bs 18 = Bs 108). Si todavía no te pagaron, queda **Por cobrar**; cuando llegue el dinero, toca **Marcar cobrado** y elige la fecha real de cobro.
+- Cada fuente muestra las horas trabajadas frente a las previstas y lo recibido frente a lo previsto del mes.
+- Un ingreso fijo se anota **una vez por mes**: cambiar de mes no lo duplica y no se puede anotar dos veces el mismo mes.
+- **Gastos** con importe, fecha y categoría (alimentación, transporte, estudios, suscripciones, salud u otros) y descripción opcional. Un gasto puede quedar **Por pagar** hasta que lo pagues.
+- **Historial** del más reciente al más antiguo, con filtros por mes (o todo), tipo y categoría. Eliminar pide confirmación.
+- **Saldo calculado**: ingresos recibidos menos gastos pagados. Los ingresos previstos, lo que está por cobrar y lo que está por pagar se muestran **aparte** y no cuentan en el saldo. Los préstamos y deudas tampoco cuentan.
+- **Dinero real declarado** (opcional): escribes cuánto tienes de verdad y Quipu lo compara con el saldo calculado. No crea movimientos ni hay un «saldo inicial» inventado.
+- **Monedas**: cada ingreso o gasto guarda su moneda. Las nuevas usan la moneda de Ajustes, pero puedes elegir otra. Los totales se muestran **por moneda**, sin sumar monedas distintas ni convertir.
+
+### Préstamos y deudas
 
 - Registros **«Me deben»** y **«Yo debo»** con persona, importe, fecha, vencimiento opcional y nota.
 - **Organizadas por persona**: la pantalla principal muestra una lista de personas, cada una como una carpeta, con su saldo pendiente («Te debe… · Le debes…» y el neto).
@@ -61,7 +73,7 @@ Llegan aunque la app esté cerrada y se vuelven a programar solos tras reiniciar
 - **Recordatorios**: activar o desactivar cada tipo, anticipación y horas.
 - **Sonido y vibración**: sonido predeterminado, silencioso o un tono a elección; vibrar sí/no; botón **Probar notificación**.
 - **Permisos**: estado de notificaciones, alarmas exactas y batería, con acceso directo a cada ajuste de Android.
-- **Moneda**: boliviano (BOB, predeterminada), dólar, euro y pesos/monedas de Argentina, Brasil, Chile, Colombia, México, Perú, Paraguay y Uruguay. Cambiar la moneda solo cambia el símbolo; **no convierte** importes.
+- **Moneda**: boliviano (BOB, predeterminada), dólar, euro y pesos/monedas de Argentina, Brasil, Chile, Colombia, México, Perú, Paraguay y Uruguay. En préstamos solo cambia el símbolo; en Dinero es la moneda de los movimientos nuevos (los anotados conservan la suya). **Nunca convierte** importes.
 - **Datos de demostración** opcionales. Llevan una marca interna y se borran con un botón sin tocar tus datos reales.
 
 ### Importes
@@ -95,7 +107,7 @@ Probado en el emulador de Android Studio (teléfono mediano, Android API 37). En
   - `RECEIVE_BOOT_COMPLETED`: volver a programar los avisos tras reiniciar el teléfono.
 - Los datos se guardan solo en el teléfono, en una base de datos local (Room/SQLite).
 - `allowBackup=false`: los datos no se copian a la nube. **Si desinstalas la app, se pierden.**
-- Las actualizaciones de la app migran la base de datos sin borrar datos (la v2 añadió las tareas diarias y la v3 los abonos, conservando todo lo anterior).
+- Las actualizaciones de la app migran la base de datos sin borrar datos (la v2 añadió las tareas diarias, la v3 los abonos y la v4 los ingresos y gastos, conservando todo lo anterior).
 
 ### Que los avisos lleguen en Xiaomi/Redmi (MIUI/HyperOS)
 
@@ -124,6 +136,7 @@ MIUI cierra las apps en segundo plano de forma agresiva. Para que los recordator
 
 ```bash
 ./gradlew testDebugUnitTest   # pruebas unitarias
+./gradlew connectedDebugAndroidTest   # pruebas en emulador (base de datos y migraciones; al terminar desinstala la app de depuración)
 ./gradlew assembleDebug       # genera el APK
 ```
 
@@ -161,14 +174,17 @@ cp keystore.properties.example keystore.properties   # edita las claves
 ```
 app/src/main/java/com/quipu/app/
   domain/     Modelos y lógica pura: importes, abonos, validaciones, personas, tareas
-              diarias, agrupación por persona, totales y planificación de recordatorios
+              diarias, agrupación por persona, totales, ingresos/gastos por moneda,
+              previsión de ingresos por horas y planificación de recordatorios
               (cubierta por pruebas)
   data/       Room (entidades, DAO, base de datos y migraciones), preferencias,
               repositorio y datos de demostración
   reminders/  Notificaciones, alarma del próximo aviso y receptores del sistema
-  ui/         Tema, navegación, componentes, pantallas (Tareas, Finanzas, Resumen,
-              Ajustes) y ViewModels
-app/src/test/java/com/quipu/app/domain/   Pruebas unitarias (JUnit)
+  ui/         Tema, navegación, componentes, pantallas (Tareas, Dinero, Préstamos,
+              Resumen, Ajustes) y ViewModels
+app/src/test/java/com/quipu/app/          Pruebas unitarias (JUnit)
+app/src/androidTest/java/com/quipu/app/   Pruebas de base de datos y migraciones (emulador)
+docs/finanzas-personales.md               Diseño del módulo de finanzas personales
 app/schemas/                              Esquemas exportados de Room (uno por versión)
 ```
 
