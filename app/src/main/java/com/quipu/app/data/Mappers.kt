@@ -5,6 +5,8 @@ import com.quipu.app.domain.DebtPayment
 import com.quipu.app.domain.DeclaredBalance
 import com.quipu.app.domain.IncomeSource
 import com.quipu.app.domain.Movement
+import com.quipu.app.domain.RecurringPayment
+import com.quipu.app.domain.RecurringReminder
 import com.quipu.app.domain.SavingsGoal
 import com.quipu.app.domain.TaskItem
 import java.time.LocalDate
@@ -137,5 +139,38 @@ fun SavingsGoal.toEntity(isDemo: Boolean = false) = SavingsGoalEntity(
     deadlineEpochDay = deadline?.toEpochDay(),
     status = status,
     completedEpochDay = completedDate?.toEpochDay(),
+    isDemo = isDemo,
+)
+
+fun RecurringPaymentEntity.toDomain() = RecurringPayment(
+    id = id,
+    name = name,
+    amountMinor = amountMinor,
+    currencyCode = currencyCode,
+    dayOfMonth = dayOfMonth,
+    startDate = LocalDate.ofEpochDay(startEpochDay),
+    endDate = endEpochDay?.let { LocalDate.ofEpochDay(it) },
+    frequency = frequency,
+    category = category,
+    description = description,
+    reminder = RecurringReminder(remindEnabled, remindLeadDays, remindMinuteOfDay),
+    active = active,
+)
+
+fun RecurringPayment.toEntity(isDemo: Boolean = false) = RecurringPaymentEntity(
+    id = id,
+    name = name.trim(),
+    amountMinor = amountMinor,
+    currencyCode = currencyCode,
+    dayOfMonth = dayOfMonth,
+    frequency = frequency,
+    startEpochDay = startDate.toEpochDay(),
+    endEpochDay = endDate?.toEpochDay(),
+    category = category,
+    description = description.trim(),
+    active = active,
+    remindEnabled = reminder.enabled,
+    remindLeadDays = reminder.leadDays,
+    remindMinuteOfDay = reminder.minuteOfDay,
     isDemo = isDemo,
 )

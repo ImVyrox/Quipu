@@ -17,8 +17,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         IncomeSourceEntity::class,
         DeclaredBalanceEntity::class,
         SavingsGoalEntity::class,
+        RecurringPaymentEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -30,6 +31,7 @@ abstract class QuipuDatabase : RoomDatabase() {
     abstract fun incomeSourceDao(): IncomeSourceDao
     abstract fun declaredBalanceDao(): DeclaredBalanceDao
     abstract fun savingsGoalDao(): SavingsGoalDao
+    abstract fun recurringPaymentDao(): RecurringPaymentDao
 
     companion object {
         /**
@@ -74,10 +76,21 @@ abstract class QuipuDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v6: pagos recurrentes y suscripciones. Solo crea la tabla recurring_payments; sus
+         * pagos ya caben en movements (recurringPaymentId + period, con índice único). No toca
+         * ningún dato existente.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                MIGRATION_5_6_SQL.forEach(db::execSQL)
+            }
+        }
+
         @Volatile
         private var instance: QuipuDatabase? = null
 
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 
         fun get(context: Context): QuipuDatabase =
             instance ?: synchronized(this) {
@@ -105,4 +118,9 @@ private val MIGRATION_3_4_SQL = listOf(
 /** SQL de la migración 4 -> 5, idéntico al que Room genera en schemas/.../5.json. */
 private val MIGRATION_4_5_SQL = listOf(
     "CREATE TABLE IF NOT EXISTS `savings_goals` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `targetMinor` INTEGER NOT NULL, `currencyCode` TEXT NOT NULL, `createdEpochDay` INTEGER NOT NULL, `deadlineEpochDay` INTEGER, `status` TEXT NOT NULL, `completedEpochDay` INTEGER, `isDemo` INTEGER NOT NULL DEFAULT 0)",
+)
+
+/** SQL de la migración 5 -> 6, idéntico al que Room genera en schemas/.../6.json. */
+private val MIGRATION_5_6_SQL = listOf(
+    "CREATE TABLE IF NOT EXISTS `recurring_payments` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `amountMinor` INTEGER NOT NULL, `currencyCode` TEXT NOT NULL, `dayOfMonth` INTEGER NOT NULL, `frequency` TEXT NOT NULL, `startEpochDay` INTEGER NOT NULL, `endEpochDay` INTEGER, `category` TEXT NOT NULL, `description` TEXT NOT NULL, `active` INTEGER NOT NULL DEFAULT 1, `remindEnabled` INTEGER NOT NULL DEFAULT 1, `remindLeadDays` INTEGER NOT NULL DEFAULT 1, `remindMinuteOfDay` INTEGER NOT NULL DEFAULT 540, `isDemo` INTEGER NOT NULL DEFAULT 0)",
 )

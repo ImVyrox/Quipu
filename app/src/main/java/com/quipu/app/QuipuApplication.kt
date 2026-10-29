@@ -28,13 +28,16 @@ class QuipuApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // Reprograma los avisos cada vez que cambian tareas, registros o ajustes.
+        // Reprograma los avisos cada vez que cambian tareas, registros, pagos recurrentes
+        // (o sus pagos, que son movimientos) o ajustes.
         appScope.launch {
             combine(
                 repository.observeTasks(),
                 repository.observeDebts(),
                 repository.settings.reminders,
-            ) { _, _, _ -> }.collectLatest {
+                money.observeRecurring(),
+                money.observeMovements(),
+            ) { _, _, _, _, _ -> }.collectLatest {
                 delay(500) // agrupa cambios seguidos en una sola sincronización
                 try {
                     ReminderEngine.sync(this@QuipuApplication)

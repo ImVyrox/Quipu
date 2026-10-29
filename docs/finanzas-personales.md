@@ -4,7 +4,7 @@ Estado:
 - **Fase 1**: diseño y lógica de dominio pura con pruebas.
 - **Fase 2**: ingresos, gastos, saldo y dinero declarado, implementados (Room v4, pantalla **Dinero**).
 - **Fase 3**: objetivos de ahorro, implementados (Room v5).
-- **Pendiente**: pagos recurrentes y sus recordatorios.
+- **Fase 4**: pagos recurrentes y suscripciones, con su recordatorio, implementados (Room v6).
 
 ## Principios
 
@@ -56,13 +56,15 @@ Pruebas: `IncomePlannerTest`, `LedgerTest`, `RecurringPlannerTest`, `MotivationT
 - **Dinero real declarado**: se compara con el total (disponible + ahorros).
 
 ### Pagos recurrentes y suscripciones
-- Vencimiento mensual en `dayOfMonth` (1–31). Si el mes es más corto, vence su último día. Solo hay vencimientos entre `startDate` y `endDate`.
+- Vencimiento en `dayOfMonth` (1–31) cada `frequency` (1, 3, 6 o 12 meses) contando desde el mes de `startDate`. Si el mes es más corto, vence su último día. Solo hay vencimientos entre `startDate` y `endDate`; si el día del mes de inicio es anterior a `startDate`, el primero es el siguiente de la frecuencia.
+- Estados de un vencimiento: PAID, PENDING, OVERDUE y PAUSED (pago en pausa). `schedule` da los vencidos (hasta 24 meses atrás), el próximo sin pagar (salta los pagados por adelantado) y el historial de pagos.
+- `manualMatches`: gastos manuales pagados, sin pago recurrente, en la misma moneda, a ±15 días del vencimiento y con el mismo importe o el nombre en la descripción. El usuario puede vincular uno (`linkRecurring`) en vez de crear otro gasto.
 - `confirm` devuelve `Created` (un gasto nuevo), `AlreadyPaid` (si el mes ya estaba pagado no se crea otro) o `NotDue`.
 - Los pendientes se muestran aparte (`pendingTotal`) y no reducen el disponible.
 - Un pago inactivo deja de generar pendientes, pero conserva su historial de pagos.
 
 ### Recordatorios y mensajes
-- Avisos de pagos recurrentes sin pagar, `leadDays` antes a una hora del día (igual que las deudas). Como mucho uno por pago en cada ventana. Usa claves `recurring-<id>-<yyyy-MM>`.
+- Avisos de pagos recurrentes sin pagar, `leadDays` antes a una hora del día, configurados **en cada pago** (`RecurringReminder`) y apagados todos por el interruptor general de recordatorios. Como mucho uno por pago en cada ventana. Usa claves `recurring-<id>-<yyyy-MM>`.
 - `Motivation.pick` elige, por prioridad: objetivo cumplido → hito de 75/50/25 % → ahorro este mes → ingresos mayores que gastos en alguna moneda → mensaje genérico que rota cada día. Nunca suma monedas distintas.
 
 ## Modelo de datos
@@ -77,7 +79,7 @@ Hay índices únicos (`incomeSourceId`, `period`) y (`recurringPaymentId`, `peri
 
 **Room v5 (fase 3, aplicado)**: `savings_goals`, con `name`, `description`, `targetMinor`, `currencyCode`, `createdEpochDay`, `deadlineEpochDay`, `status` (ACTIVE, PAUSED o COMPLETED) y `completedEpochDay`. Lo acumulado no se guarda: sale de `movements`.
 
-**Pendiente**: `recurring_payments`, según la propuesta de abajo.
+**Room v6 (fase 4, aplicado)**: `recurring_payments`, con `name`, `amountMinor`, `currencyCode`, `dayOfMonth`, `frequency` (MONTHLY, QUARTERLY, SEMIANNUAL o YEARLY), `startEpochDay`, `endEpochDay`, `category`, `description`, `active` y el recordatorio (`remindEnabled`, `remindLeadDays`, `remindMinuteOfDay`). `isSubscription` de la propuesta se reemplazó por la categoría «Suscripciones». Los pagos hechos siguen siendo gastos en `movements` (`recurringPaymentId` + `period`).
 
 ```
 income_sources

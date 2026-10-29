@@ -67,6 +67,9 @@ import com.quipu.app.domain.Money
 import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementKindFilter
 import com.quipu.app.domain.MovementType
+import com.quipu.app.domain.OccurrenceStatus
+import com.quipu.app.domain.RecurringOccurrence
+import com.quipu.app.domain.RecurringPlanner
 import com.quipu.app.ui.Formats
 import com.quipu.app.ui.components.ConfirmDeleteDialog
 import com.quipu.app.ui.components.EmptyState
@@ -74,9 +77,10 @@ import com.quipu.app.ui.components.SectionHeader
 import com.quipu.app.ui.components.StatusPill
 import com.quipu.app.ui.theme.QuipuColors
 import java.time.LocalDate
+import java.time.YearMonth
 
 /** Qué formulario está abierto. Se guarda como texto para sobrevivir a rotaciones. */
-private enum class MoneySheet { CHOOSER, EXPENSE, INCOME, SOURCE, GOAL_FORM, GOAL_DETAIL }
+private enum class MoneySheet { CHOOSER, EXPENSE, INCOME, SOURCE, GOAL_FORM, GOAL_DETAIL, RECURRING_FORM, RECURRING_DETAIL }
 
 @Composable
 fun MoneyScreen(
@@ -103,6 +107,11 @@ fun MoneyScreen(
     /** Movimiento de ahorro en curso: objetivo y tipo. */
     var savingGoalId by rememberSaveable { mutableStateOf<Long?>(null) }
     var savingType by rememberSaveable { mutableStateOf<MovementType?>(null) }
+    /** Pago recurrente abierto (detalle o edición; null en el formulario = nuevo). */
+    var recurringId by rememberSaveable { mutableStateOf<Long?>(null) }
+    /** Vencimiento que se está confirmando: pago y mes ("2026-11"). */
+    var payingRecurringId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var payingPeriod by rememberSaveable { mutableStateOf<String?>(null) }
 
     val today = LocalDate.now()
     val sourceNames = state.sources.associate { it.id to it.name }
@@ -110,6 +119,10 @@ fun MoneyScreen(
     fun openGoal(id: Long) {
         goalId = id
         sheet = MoneySheet.GOAL_DETAIL
+    }
+    fun payRecurring(occurrence: RecurringOccurrence) {
+        payingRecurringId = occurrence.payment.id
+        payingPeriod = occurrence.period.toString()
     }
 
     Scaffold(
@@ -230,6 +243,38 @@ fun MoneyScreen(
                 )
             }
             item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    SectionHeader("Pagos recurrentes", modifier = Modifier.padding(bottom = 6.dp))
+                    TextButton(onClick = {
+                        recurringId = null
+                        sheet = MoneySheet.RECURRING_FORM
+                    }) { Text("Nuevo") }
+                }
+            }
+            if (state.recurring.isEmpty()) {
+                item {
+                    HintCard(
+                        "Anota tus suscripciones y pagos fijos (internet, alquiler, Claude) para ver cuándo vencen. " +
+                            "Un pago pendiente no reduce tu disponible hasta que lo confirmas.",
+                    )
+                }
+            }
+            items(state.recurring, key = { "recurring-${it.payment.id}" }) { schedule ->
+                RecurringCard(
+                    schedule = schedule,
+                    today = today,
+                    onOpen = {
+                        recurringId = schedule.payment.id
+                        sheet = MoneySheet.RECURRING_DETAIL
+                    },
+                    onPay = ::payRecurring,
+                )
+            }
+            item {
                 SectionHeader("Movimientos")
                 HistoryFilters(
                     kind = state.filter.kind,
@@ -329,6 +374,37 @@ fun MoneyScreen(
                 },
             )
         }
+        MoneySheet.RECURRING_FORM -> {
+            val editing = state.recurring.firstOrNull { it.payment.id == recurringId }?.payment
+            RecurringFormSheet(
+                initial = editing,
+                defaultCurrency = state.defaultCurrency,
+                onDismiss = { sheet = if (editing != null) MoneySheet.RECURRING_DETAIL else null },
+                onSave = {
+                    viewModel.saveRecurring(it)
+                    sheet = if (editing != null) MoneySheet.RECURRING_DETAIL else null
+                },
+            )
+        }
+        MoneySheet.RECURRING_DETAIL -> {
+            val schedule = state.recurring.firstOrNull { it.payment.id == recurringId }
+            if (schedule == null) {
+                LaunchedEffect(recurringId) { sheet = null }
+            } else RecurringDetailSheet(
+                schedule = schedule,
+                movements = state.all,
+                today = today,
+                onDismiss = { sheet = null },
+                onEdit = { sheet = MoneySheet.RECURRING_FORM },
+                onPay = ::payRecurring,
+                onSetActive = { viewModel.setRecurringActive(schedule.payment, it) },
+                onUndoPayment = { deletingId = it.id },
+                onDelete = {
+                    viewModel.deleteRecurring(schedule.payment)
+                    sheet = null
+                },
+            )
+        }
         MoneySheet.GOAL_DETAIL -> {
             val progress = state.goals.firstOrNull { it.goal.id == goalId }
             // El objetivo ya no existe (por ejemplo, recién eliminado): se cierra la hoja.
@@ -362,11 +438,15 @@ fun MoneyScreen(
                 MovementType.EXPENSE -> "gasto"
                 else -> savingLabel(movement.type).lowercase()
             }
-            val effect = when (movement.type) {
+            val effect = when {
+                movement.recurringPaymentId != null ->
+                    " El vencimiento de ${movement.period?.let { Formats.month(it).lowercase() } ?: "ese mes"} volverá a quedar pendiente."
+                else -> when (movement.type) {
                 MovementType.SAVING_DEPOSIT -> " El importe volverá a tu disponible."
                 MovementType.SAVING_WITHDRAWAL -> " El importe volverá al objetivo."
                 MovementType.SAVING_OPENING -> " Lo ahorrado en el objetivo bajará."
                 else -> ""
+                }
             }
             ConfirmDeleteDialog(
                 title = "¿Eliminar $noun?",
@@ -407,6 +487,29 @@ fun MoneyScreen(
                 savingType = null
             },
         )
+    }
+
+    val payingPayment = state.recurring.firstOrNull { it.payment.id == payingRecurringId }?.payment
+    val period = payingPeriod?.let(YearMonth::parse)
+    if (payingPayment != null && period != null) {
+        val occurrence = RecurringPlanner.occurrences(payingPayment, period, period, state.all, today).firstOrNull()
+        if (occurrence == null || occurrence.status == OccurrenceStatus.PAID) {
+            LaunchedEffect(payingPeriod) { payingPeriod = null }
+        } else {
+            ConfirmRecurringDialog(
+                occurrence = occurrence,
+                matches = RecurringPlanner.manualMatches(occurrence, state.all),
+                onDismiss = { payingPeriod = null },
+                onConfirm = { minor, date ->
+                    viewModel.confirmRecurring(payingPayment, period, minor, date)
+                    payingPeriod = null
+                },
+                onLink = { movement ->
+                    viewModel.linkRecurring(movement, payingPayment, period)
+                    payingPeriod = null
+                },
+            )
+        }
     }
 
     if (declaring) {
@@ -538,7 +641,8 @@ private fun BalanceCard(state: MoneyUiState, onDeclare: () -> Unit) {
         }
         Figure("Saldo del periodo", amountLines(state.totals.net, fallback, signed = true), null)
 
-        val hasForecast = !state.projected.isEmpty || !state.pending.income.isEmpty || !state.pending.expense.isEmpty
+        val hasForecast = !state.projected.isEmpty || !state.pending.income.isEmpty || !state.pending.expense.isEmpty ||
+            !state.recurringPending.isEmpty
         if (hasForecast) {
             HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = scheme.outlineVariant)
             Text("Previsto (no cuenta en el saldo)", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
@@ -547,6 +651,9 @@ private fun BalanceCard(state: MoneyUiState, onDeclare: () -> Unit) {
             }
             if (!state.pending.income.isEmpty) ForecastLine("Por cobrar", state.pending.income)
             if (!state.pending.expense.isEmpty) ForecastLine("Gastos por pagar", state.pending.expense)
+            if (!state.recurringPending.isEmpty) {
+                ForecastLine("Pagos recurrentes por pagar en ${Formats.month(state.progressMonth).lowercase()}", state.recurringPending)
+            }
         }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = scheme.outlineVariant)

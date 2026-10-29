@@ -1,6 +1,7 @@
 package com.quipu.app.data
 
 import androidx.room.withTransaction
+import com.quipu.app.domain.ConfirmResult
 import com.quipu.app.domain.DeclaredBalance
 import com.quipu.app.domain.GoalStatus
 import com.quipu.app.domain.IncomeKind
@@ -9,6 +10,8 @@ import com.quipu.app.domain.Ledger
 import com.quipu.app.domain.Money
 import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementType
+import com.quipu.app.domain.RecurringPayment
+import com.quipu.app.domain.RecurringPlanner
 import com.quipu.app.domain.SavingsGoal
 import com.quipu.app.domain.TransferError
 import java.time.LocalDate
@@ -35,6 +38,7 @@ class MoneyRepository(
     private val sourceDao = database.incomeSourceDao()
     private val declaredDao = database.declaredBalanceDao()
     private val goalDao = database.savingsGoalDao()
+    private val recurringDao = database.recurringPaymentDao()
 
     fun observeMovements(): Flow<List<Movement>> =
         movementDao.observeAll().map { list -> list.map { it.toDomain() } }
@@ -66,16 +70,20 @@ class MoneyRepository(
             val existing = movementDao.findIncomeForPeriod(source!!.id, period.toString())
             if (existing != null && existing.id != movement.id) throw DuplicateIncomeException(period)
         }
+        // El vínculo con un pago recurrente solo se crea al confirmarlo o vincularlo
+        // (confirmRecurring, linkRecurring): editar el gasto lo conserva y un gasto nuevo no lo trae.
+        val stored = if (movement.id == 0L) null else (movementDao.getById(movement.id) ?: return@withTransaction 0L)
+        val keepsRecurring = movement.type == MovementType.EXPENSE && stored?.recurringPaymentId != null
         val clean = movement.copy(
-            period = period,
+            period = if (keepsRecurring) stored!!.period?.let(YearMonth::parse) else period,
+            recurringPaymentId = if (keepsRecurring) stored!!.recurringPaymentId else null,
             category = if (movement.type == MovementType.EXPENSE) movement.category else null,
             incomeSourceId = if (movement.type == MovementType.INCOME) movement.incomeSourceId else null,
         )
 
-        if (movement.id == 0L) {
+        if (stored == null) {
             movementDao.insert(clean.toEntity(createdAtEpochSecond = nowEpochSecond()))
         } else {
-            val stored = movementDao.getById(movement.id) ?: return@withTransaction 0L
             movementDao.update(clean.toEntity(stored.createdAtEpochSecond, stored.isDemo))
             movement.id
         }
@@ -107,6 +115,78 @@ class MoneyRepository(
     }
 
     private suspend fun allMovements(): List<Movement> = movementDao.getAll().map { it.toDomain() }
+
+    // ---- Pagos recurrentes y suscripciones ----
+
+    fun observeRecurring(): Flow<List<RecurringPayment>> =
+        recurringDao.observeAll().map { list -> list.map { it.toDomain() } }
+
+    /** Pagos recurrentes y movimientos actuales, para calcular avisos fuera de la interfaz. */
+    suspend fun recurringSnapshot(): Pair<List<RecurringPayment>, List<Movement>> = database.withTransaction {
+        recurringDao.getAll().map { it.toDomain() } to allMovements()
+    }
+
+    /**
+     * Crea (id 0) o actualiza un pago recurrente. Al editar se conserva si está en pausa
+     * (eso se cambia con [setRecurringActive]). Los pagos ya hechos no cambian: son gastos
+     * guardados en su moneda original.
+     */
+    suspend fun saveRecurring(payment: RecurringPayment): Long = database.withTransaction {
+        require(payment.amountMinor in 1..Money.MAX_MINOR) { "Importe fuera de rango" }
+        require(payment.dayOfMonth in 1..31) { "Día fuera de rango" }
+        if (payment.id == 0L) {
+            recurringDao.insert(payment.copy(active = true).toEntity())
+        } else {
+            val stored = recurringDao.getById(payment.id) ?: return@withTransaction 0L
+            recurringDao.update(payment.copy(active = stored.active).toEntity(isDemo = stored.isDemo))
+            payment.id
+        }
+    }
+
+    suspend fun setRecurringActive(id: Long, active: Boolean) = recurringDao.setActive(id, active)
+
+    /** Borra un pago recurrente. Sus pagos hechos se conservan como gastos en el historial. */
+    suspend fun deleteRecurring(id: Long) = recurringDao.deleteById(id)
+
+    /**
+     * Confirma el vencimiento de [period] con la fecha efectiva [paidOn] y el importe pagado,
+     * en la moneda original del pago. Se comprueba en una transacción con los datos guardados:
+     * si ese mes ya estaba pagado devuelve [ConfirmResult.AlreadyPaid] y no crea otro gasto
+     * (además, el índice único de movements lo impide).
+     */
+    suspend fun confirmRecurring(
+        paymentId: Long,
+        period: YearMonth,
+        paidOn: LocalDate,
+        amountMinor: Long,
+    ): ConfirmResult = database.withTransaction {
+        require(amountMinor in 1..Money.MAX_MINOR) { "Importe fuera de rango" }
+        val payment = recurringDao.getById(paymentId)?.toDomain() ?: return@withTransaction ConfirmResult.NotDue
+        val result = RecurringPlanner.confirm(payment, period, paidOn, allMovements(), amountMinor)
+        if (result is ConfirmResult.Created) {
+            val id = movementDao.insert(result.movement.toEntity(createdAtEpochSecond = nowEpochSecond()))
+            ConfirmResult.Created(result.movement.copy(id = id))
+        } else {
+            result
+        }
+    }
+
+    /**
+     * Usa un gasto ya anotado a mano como pago de [period], en vez de registrar otro: así
+     * el mismo pago no cuenta dos veces. El gasto debe estar pagado, sin otro pago
+     * recurrente y en la misma moneda, y ese mes no puede estar ya pagado.
+     */
+    suspend fun linkRecurring(movementId: Long, paymentId: Long, period: YearMonth) = database.withTransaction {
+        val payment = recurringDao.getById(paymentId)?.toDomain() ?: throw IllegalArgumentException("El pago no existe")
+        val stored = movementDao.getById(movementId) ?: throw IllegalArgumentException("El gasto no existe")
+        check(stored.type == MovementType.EXPENSE && !stored.pending && stored.recurringPaymentId == null) {
+            "Solo se vincula un gasto pagado sin pago recurrente"
+        }
+        check(stored.currencyCode == payment.currencyCode) { "La moneda no coincide" }
+        check(RecurringPlanner.isDueIn(payment, period)) { "El pago no vence ese mes" }
+        check(movementDao.findRecurring(paymentId, period.toString()) == null) { "Ese mes ya está pagado" }
+        movementDao.update(stored.copy(recurringPaymentId = paymentId, period = period.toString()))
+    }
 
     // ---- Objetivos de ahorro ----
 
@@ -228,7 +308,12 @@ class MoneyRepository(
     // ---- Datos de demostración (opcionales) ----
 
     fun observeDemoCount(): Flow<Int> =
-        combine(movementDao.observeDemoCount(), sourceDao.observeDemoCount(), goalDao.observeDemoCount()) { m, s, g -> m + s + g }
+        combine(
+            movementDao.observeDemoCount(),
+            sourceDao.observeDemoCount(),
+            goalDao.observeDemoCount(),
+            recurringDao.observeDemoCount(),
+        ) { m, s, g, r -> m + s + g + r }
 
     suspend fun loadDemoData(today: LocalDate) = database.withTransaction {
         val sourceId = sourceDao.insert(DemoData.hourlySource())
@@ -239,11 +324,16 @@ class MoneyRepository(
         DemoData.goalMovements(today, goalId).forEach {
             movementDao.insert(it.toEntity(createdAtEpochSecond = nowEpochSecond(), isDemo = true))
         }
+        val paymentId = recurringDao.insert(DemoData.recurringPayment(today))
+        DemoData.recurringMovements(today, paymentId).forEach {
+            movementDao.insert(it.toEntity(createdAtEpochSecond = nowEpochSecond(), isDemo = true))
+        }
     }
 
     suspend fun removeDemoData() = database.withTransaction {
         movementDao.deleteDemo()
         sourceDao.deleteDemo()
         goalDao.deleteDemo()
+        recurringDao.deleteDemo()
     }
 }

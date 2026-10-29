@@ -8,8 +8,10 @@ import com.quipu.app.domain.IncomePlanner
 import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementType
 import com.quipu.app.domain.PersonKey
+import com.quipu.app.domain.RecurringFrequency
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 
 /**
  * Datos de ejemplo OPCIONALES. Solo se insertan si el usuario lo pide desde Ajustes,
@@ -122,6 +124,40 @@ object DemoData {
         return listOf(
             Movement(0, MovementType.SAVING_OPENING, 50_000, "BOB", first, "Lo que ya tenía guardado (ejemplo)", goalId = goalId),
             Movement(0, MovementType.SAVING_DEPOSIT, 5_000, "BOB", maxOf(first, today.minusDays(3)), "", goalId = goalId),
+        )
+    }
+
+    /**
+     * Suscripción de ejemplo en dólares: vence el día 5 de cada mes desde hace dos meses.
+     * El mes pasado ya está pagado (un gasto vinculado) y el actual queda pendiente.
+     */
+    fun recurringPayment(today: LocalDate): RecurringPaymentEntity = RecurringPaymentEntity(
+        name = "Claude (ejemplo)",
+        amountMinor = 2_000,
+        currencyCode = "USD",
+        dayOfMonth = 5,
+        frequency = RecurringFrequency.MONTHLY,
+        startEpochDay = YearMonth.from(today).minusMonths(2).atDay(1).toEpochDay(),
+        endEpochDay = null,
+        category = ExpenseCategory.SUBSCRIPTIONS,
+        description = "Plan mensual",
+        isDemo = true,
+    )
+
+    fun recurringMovements(today: LocalDate, paymentId: Long): List<Movement> {
+        val lastMonth = YearMonth.from(today).minusMonths(1)
+        return listOf(
+            Movement(
+                id = 0,
+                type = MovementType.EXPENSE,
+                amountMinor = 2_000,
+                currencyCode = "USD",
+                date = lastMonth.atDay(5),
+                description = "Claude (ejemplo)",
+                category = ExpenseCategory.SUBSCRIPTIONS,
+                recurringPaymentId = paymentId,
+                period = lastMonth,
+            ),
         )
     }
 }

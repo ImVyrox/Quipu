@@ -26,6 +26,9 @@ interface MovementDao {
     @Query("SELECT * FROM movements WHERE goalId = :goalId")
     suspend fun getForGoal(goalId: Long): List<MovementEntity>
 
+    @Query("SELECT * FROM movements WHERE recurringPaymentId = :paymentId AND period = :period LIMIT 1")
+    suspend fun findRecurring(paymentId: Long, period: String): MovementEntity?
+
     @Query("SELECT COUNT(*) FROM movements WHERE incomeSourceId = :sourceId")
     suspend fun countForSource(sourceId: Long): Int
 
@@ -105,5 +108,35 @@ interface SavingsGoalDao {
     fun observeDemoCount(): Flow<Int>
 
     @Query("DELETE FROM savings_goals WHERE isDemo = 1")
+    suspend fun deleteDemo()
+}
+
+@Dao
+interface RecurringPaymentDao {
+    @Query("SELECT * FROM recurring_payments ORDER BY id")
+    fun observeAll(): Flow<List<RecurringPaymentEntity>>
+
+    @Query("SELECT * FROM recurring_payments ORDER BY id")
+    suspend fun getAll(): List<RecurringPaymentEntity>
+
+    @Query("SELECT * FROM recurring_payments WHERE id = :id")
+    suspend fun getById(id: Long): RecurringPaymentEntity?
+
+    @Insert
+    suspend fun insert(payment: RecurringPaymentEntity): Long
+
+    @Update
+    suspend fun update(payment: RecurringPaymentEntity)
+
+    @Query("UPDATE recurring_payments SET active = :active WHERE id = :id")
+    suspend fun setActive(id: Long, active: Boolean)
+
+    @Query("DELETE FROM recurring_payments WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("SELECT COUNT(*) FROM recurring_payments WHERE isDemo = 1")
+    fun observeDemoCount(): Flow<Int>
+
+    @Query("DELETE FROM recurring_payments WHERE isDemo = 1")
     suspend fun deleteDemo()
 }

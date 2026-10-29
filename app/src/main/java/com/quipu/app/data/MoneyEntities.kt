@@ -8,6 +8,7 @@ import com.quipu.app.domain.ExpenseCategory
 import com.quipu.app.domain.GoalStatus
 import com.quipu.app.domain.IncomeKind
 import com.quipu.app.domain.MovementType
+import com.quipu.app.domain.RecurringFrequency
 
 /**
  * Movimiento de dinero (ingreso, gasto o traspaso al ahorro). Las relaciones con fuentes,
@@ -91,5 +92,33 @@ data class SavingsGoalEntity(
     val deadlineEpochDay: Long?,
     val status: GoalStatus,
     val completedEpochDay: Long?,
+    @ColumnInfo(defaultValue = "0") val isDemo: Boolean = false,
+)
+
+/**
+ * Pago recurrente o suscripción. Sus vencimientos no se guardan: se calculan con la regla
+ * (día, frecuencia, inicio y fin). Cada pago confirmado es un gasto en `movements` con
+ * [id] como `recurringPaymentId` y el mes como `period` (índice único: uno por mes).
+ * Borrar un pago no borra esos gastos.
+ */
+@Entity(tableName = "recurring_payments")
+data class RecurringPaymentEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    /** Importe en centavos, en [currencyCode] (sin conversión). */
+    val amountMinor: Long,
+    val currencyCode: String,
+    /** Día de vencimiento (1-31); en meses más cortos vence el último día. */
+    val dayOfMonth: Int,
+    val frequency: RecurringFrequency,
+    val startEpochDay: Long,
+    val endEpochDay: Long?,
+    val category: ExpenseCategory,
+    val description: String,
+    /** En pausa = false: no genera pendientes ni avisos; conserva su historial. */
+    @ColumnInfo(defaultValue = "1") val active: Boolean = true,
+    @ColumnInfo(defaultValue = "1") val remindEnabled: Boolean = true,
+    @ColumnInfo(defaultValue = "1") val remindLeadDays: Int = 1,
+    @ColumnInfo(defaultValue = "540") val remindMinuteOfDay: Int = 540,
     @ColumnInfo(defaultValue = "0") val isDemo: Boolean = false,
 )

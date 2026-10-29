@@ -127,7 +127,7 @@ private fun CurrencyMenu(currencyCode: String, onChange: (String) -> Unit) {
 }
 
 @Composable
-private fun DescriptionField(value: String, onValueChange: (String) -> Unit, error: String?) {
+internal fun DescriptionField(value: String, onValueChange: (String) -> Unit, error: String?) {
     OutlinedTextField(
         value = value,
         onValueChange = { if (it.length <= Limits.NOTE_MAX) onValueChange(it) },
@@ -141,7 +141,7 @@ private fun DescriptionField(value: String, onValueChange: (String) -> Unit, err
 }
 
 @Composable
-private fun SwitchRow(text: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(text: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)

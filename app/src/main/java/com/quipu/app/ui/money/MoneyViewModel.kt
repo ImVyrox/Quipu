@@ -7,6 +7,7 @@ import com.quipu.app.data.SavingRejectedException
 import com.quipu.app.domain.AppCurrencies
 import com.quipu.app.domain.AppCurrency
 import com.quipu.app.domain.BalanceOverview
+import com.quipu.app.domain.ConfirmResult
 import com.quipu.app.domain.CurrencyAmounts
 import com.quipu.app.domain.DeclaredComparison
 import com.quipu.app.domain.ExpenseCategory
@@ -17,12 +18,15 @@ import com.quipu.app.domain.IncomeProgress
 import com.quipu.app.domain.IncomeSource
 import com.quipu.app.domain.Ledger
 import com.quipu.app.domain.Money
+import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementFilter
 import com.quipu.app.domain.MovementKindFilter
-import com.quipu.app.domain.Movement
 import com.quipu.app.domain.MovementType
 import com.quipu.app.domain.PendingTotals
 import com.quipu.app.domain.PeriodTotals
+import com.quipu.app.domain.RecurringPayment
+import com.quipu.app.domain.RecurringPlanner
+import com.quipu.app.domain.RecurringSchedule
 import com.quipu.app.domain.SavingsGoal
 import com.quipu.app.ui.BaseViewModel
 import com.quipu.app.ui.Formats
@@ -61,6 +65,10 @@ data class MoneyUiState(
     val projected: CurrencyAmounts = CurrencyAmounts.EMPTY,
     /** Último dinero declarado de cada moneda frente al saldo calculado. */
     val declared: List<DeclaredComparison> = emptyList(),
+    /** Pagos recurrentes: vencidos primero, luego por próximo vencimiento, en pausa al final. */
+    val recurring: List<RecurringSchedule> = emptyList(),
+    /** Lo que falta pagar de los recurrentes en [progressMonth] (previsto: no reduce el saldo). */
+    val recurringPending: CurrencyAmounts = CurrencyAmounts.EMPTY,
 )
 
 class MoneyViewModel(application: Application) : BaseViewModel(application) {
@@ -71,9 +79,9 @@ class MoneyViewModel(application: Application) : BaseViewModel(application) {
         money.observeMovements(),
         money.observeIncomeSources(),
         money.observeDeclaredBalances(),
-        money.observeGoals(),
+        combine(money.observeGoals(), money.observeRecurring()) { g, r -> g to r },
         combine(filter, repository.settings.currency) { f, c -> f to c },
-    ) { movements, sources, declared, goals, (f, currency) ->
+    ) { movements, sources, declared, (goals, recurring), (f, currency) ->
         val today = LocalDate.now()
         val month = f.month
         val from = month?.atDay(1)
@@ -99,6 +107,8 @@ class MoneyViewModel(application: Application) : BaseViewModel(application) {
                 .groupBy { it.currencyCode }
                 .map { (_, list) -> Ledger.compareDeclared(list.maxWith(compareBy({ it.date }, { it.id })), movements) }
                 .sortedBy { it.declared.currencyCode },
+            recurring = RecurringPlanner.schedules(recurring, movements, today),
+            recurringPending = RecurringPlanner.pendingTotal(recurring, movements, progressMonth, today),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MoneyUiState())
 
@@ -205,6 +215,44 @@ class MoneyViewModel(application: Application) : BaseViewModel(application) {
             } catch (e: Exception) {
                 say("No se pudo completar la acción. Inténtalo de nuevo.")
             }
+        }
+    }
+
+    // ---- Pagos recurrentes ----
+
+    fun saveRecurring(payment: RecurringPayment) {
+        launchAction(if (payment.id == 0L) "Pago recurrente creado" else "Cambios guardados") { money.saveRecurring(payment) }
+    }
+
+    fun setRecurringActive(payment: RecurringPayment, active: Boolean) {
+        launchAction(if (active) "Pago reanudado" else "Pago en pausa: no generará pendientes ni avisos") {
+            money.setRecurringActive(payment.id, active)
+        }
+    }
+
+    fun deleteRecurring(payment: RecurringPayment) {
+        launchAction("Pago recurrente eliminado. Sus pagos se conservan en el historial") { money.deleteRecurring(payment.id) }
+    }
+
+    /** Confirma un vencimiento. Confirmarlo dos veces no crea otro gasto: lo avisa. */
+    fun confirmRecurring(payment: RecurringPayment, period: YearMonth, amountMinor: Long, date: LocalDate) {
+        viewModelScope.launch {
+            try {
+                when (money.confirmRecurring(payment.id, period, date, amountMinor)) {
+                    is ConfirmResult.Created -> say("Pago de ${Formats.month(period).lowercase()} registrado")
+                    is ConfirmResult.AlreadyPaid -> say("Ese mes ya estaba pagado: no se registró otro gasto")
+                    ConfirmResult.NotDue -> say("Ese pago no vence en ${Formats.month(period).lowercase()}")
+                }
+            } catch (e: Exception) {
+                say("No se pudo completar la acción. Inténtalo de nuevo.")
+            }
+        }
+    }
+
+    /** Usa un gasto ya anotado como pago del vencimiento, en vez de registrar otro. */
+    fun linkRecurring(movement: Movement, payment: RecurringPayment, period: YearMonth) {
+        launchAction("Gasto vinculado al pago de ${Formats.month(period).lowercase()}") {
+            money.linkRecurring(movement.id, payment.id, period)
         }
     }
 

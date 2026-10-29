@@ -154,8 +154,28 @@ data class SavingsGoal(
 )
 
 /**
- * Pago recurrente mensual (servicio, alquiler, suscripción). Genera un vencimiento por
- * mes en [dayOfMonth]; si el mes es más corto, vence el último día (31 -> 28/29/30).
+ * Cada cuánto vence un pago recurrente, en meses. Se guarda por nombre: no renombres las
+ * constantes. Todas cuentan meses, así cada vencimiento es de un mes concreto ([YearMonth]).
+ */
+enum class RecurringFrequency(val months: Int, val label: String) {
+    MONTHLY(1, "Mensual"),
+    QUARTERLY(3, "Trimestral"),
+    SEMIANNUAL(6, "Semestral"),
+    YEARLY(12, "Anual"),
+}
+
+/** Aviso de un pago recurrente: [leadDays] días antes del vencimiento, a [minuteOfDay]. */
+data class RecurringReminder(
+    val enabled: Boolean = true,
+    val leadDays: Int = 1,
+    val minuteOfDay: Int = 9 * 60,
+)
+
+/**
+ * Pago recurrente (servicio, alquiler, suscripción). Vence en [dayOfMonth] cada
+ * [frequency] a partir de [startDate]; si el mes es más corto, vence su último día
+ * (31 -> 28/29/30). Los vencimientos no se guardan: se calculan ([RecurringPlanner]).
+ * Un pago en pausa ([active] = false) no genera pendientes pero conserva sus pagos.
  */
 data class RecurringPayment(
     val id: Long,
@@ -165,9 +185,16 @@ data class RecurringPayment(
     val dayOfMonth: Int,
     val startDate: LocalDate,
     val endDate: LocalDate? = null,
-    val isSubscription: Boolean = false,
+    val frequency: RecurringFrequency = RecurringFrequency.MONTHLY,
+    /** Categoría del gasto que se registra al confirmarlo. */
+    val category: ExpenseCategory = ExpenseCategory.OTHER,
+    /** Opcional (puede ir vacía). */
+    val description: String = "",
+    val reminder: RecurringReminder = RecurringReminder(),
     val active: Boolean = true,
-)
+) {
+    val isSubscription: Boolean get() = category == ExpenseCategory.SUBSCRIPTIONS
+}
 
 /**
  * Importes agrupados por código de moneda. Solo se suman importes de la misma moneda;

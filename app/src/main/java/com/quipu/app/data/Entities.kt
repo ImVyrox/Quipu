@@ -11,6 +11,7 @@ import com.quipu.app.domain.ExpenseCategory
 import com.quipu.app.domain.GoalStatus
 import com.quipu.app.domain.IncomeKind
 import com.quipu.app.domain.MovementType
+import com.quipu.app.domain.RecurringFrequency
 
 @Entity(tableName = "tasks")
 data class TaskEntity(
@@ -90,6 +91,12 @@ class Converters {
 
     @TypeConverter
     fun stringToExpenseCategory(value: String?): ExpenseCategory? = value?.let { ExpenseCategory.valueOf(it) }
+
+    @TypeConverter
+    fun recurringFrequencyToString(value: RecurringFrequency): String = value.name
+
+    @TypeConverter
+    fun stringToRecurringFrequency(value: String): RecurringFrequency = RecurringFrequency.valueOf(value)
 
     @TypeConverter
     fun goalStatusToString(value: GoalStatus): String = value.name

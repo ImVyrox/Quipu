@@ -7,9 +7,11 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.AlarmManagerCompat
 import com.quipu.app.QuipuApplication
+import com.quipu.app.domain.AppCurrencies
 import com.quipu.app.domain.DebtItem
 import com.quipu.app.domain.DebtType
 import com.quipu.app.domain.Money
+import com.quipu.app.domain.RecurringPayment
 import com.quipu.app.domain.Reminder
 import com.quipu.app.domain.ReminderKind
 import com.quipu.app.domain.ReminderPlanner
@@ -40,16 +42,17 @@ object ReminderEngine {
         val config = settings.reminders.value
         val now = LocalDateTime.now().withNano(0)
         val (tasks, debts) = repository.snapshot()
+        val (recurring, movements) = app.money.recurringSnapshot()
 
         val last = settings.lastReminderCheck
         if (last != null) {
             val from = maxOf(last, now.minusHours(MAX_CATCH_UP_HOURS))
-            ReminderPlanner.dueBetween(tasks, debts, config, from, now).forEach { reminder ->
-                notify(app, reminder, tasks, debts)
+            ReminderPlanner.dueBetween(tasks, debts, config, from, now, recurring, movements).forEach { reminder ->
+                notify(app, reminder, tasks, debts, recurring)
             }
         }
         settings.lastReminderCheck = now
-        schedule(app, ReminderPlanner.nextAfter(tasks, debts, config, now))
+        schedule(app, ReminderPlanner.nextAfter(tasks, debts, config, now, recurring, movements))
     }
 
     /** Aviso de prueba desde Ajustes, con el sonido configurado. */
@@ -92,7 +95,13 @@ object ReminderEngine {
         }
     }
 
-    private fun notify(app: QuipuApplication, reminder: Reminder, tasks: List<TaskItem>, debts: List<DebtItem>) {
+    private fun notify(
+        app: QuipuApplication,
+        reminder: Reminder,
+        tasks: List<TaskItem>,
+        debts: List<DebtItem>,
+        recurring: List<RecurringPayment>,
+    ) {
         val settings = app.repository.settings
         val today = reminder.at.toLocalDate()
         val (title, text) = when (reminder.kind) {
@@ -115,6 +124,15 @@ object ReminderEngine {
                     "Pago por vencer" to "Debes $amount a ${debt.personName}. Vence $due."
                 }
             }
+            ReminderKind.RECURRING -> {
+                val payment = recurring.firstOrNull { it.id == reminder.itemId } ?: return
+                // En la moneda original del pago: nunca se convierte.
+                val amount = Money.format(payment.amountMinor, AppCurrencies.byCode(payment.currencyCode))
+                val dueDate = reminder.dueDate ?: return
+                val due = Formats.relativeDate(dueDate, today).lowercaseFirst()
+                val noun = if (payment.isSubscription) "Suscripción" else "Pago recurrente"
+                "$noun por vencer" to "${payment.name}: $amount. Vence $due."
+            }
         }
         QuipuNotifications.post(
             app,
@@ -122,7 +140,7 @@ object ReminderEngine {
             id = reminder.key.hashCode(),
             title = title,
             text = text,
-            finance = reminder.kind == ReminderKind.DEBT,
+            finance = reminder.kind == ReminderKind.DEBT || reminder.kind == ReminderKind.RECURRING,
         )
     }
 

@@ -91,6 +91,40 @@ class MigrationTest {
     }
 
     @Test
+    fun migra5a6ConservaAhorrosYMovimientos() {
+        helper.createDatabase(dbName, 5).apply {
+            execSQL(
+                "INSERT INTO savings_goals (id, name, description, targetMinor, currencyCode, createdEpochDay, deadlineEpochDay, " +
+                    "status, completedEpochDay, isDemo) VALUES (1, 'Viaje', '', 100000, 'BOB', 20000, NULL, 'ACTIVE', NULL, 0)",
+            )
+            execSQL(
+                "INSERT INTO movements (id, type, amountMinor, currencyCode, epochDay, description, category, pending, " +
+                    "incomeSourceId, workEpochDay, workedMinutes, goalId, recurringPaymentId, period, createdAtEpochSecond, isDemo) " +
+                    "VALUES (1, 'SAVING_OPENING', 5000, 'BOB', 20000, '', NULL, 0, NULL, NULL, NULL, 1, NULL, NULL, 0, 0)",
+            )
+            close()
+        }
+        // Valida que el esquema migrado sea idéntico a schemas/.../6.json.
+        helper.runMigrationsAndValidate(dbName, 6, true, QuipuDatabase.MIGRATION_5_6).close()
+
+        val db = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            QuipuDatabase::class.java,
+            dbName,
+        ).addMigrations(*QuipuDatabase.ALL_MIGRATIONS).build()
+        try {
+            runBlocking {
+                val repo = MoneyRepository(db)
+                assertEquals("Viaje", repo.observeGoals().first().single().name)
+                assertEquals(5_000L, repo.observeMovements().first().single().amountMinor)
+                assertTrue(repo.observeRecurring().first().isEmpty())
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun migra1aLaUltima() {
         helper.createDatabase(dbName, 1).apply {
             execSQL(
@@ -99,6 +133,6 @@ class MigrationTest {
             )
             close()
         }
-        helper.runMigrationsAndValidate(dbName, 5, true, *QuipuDatabase.ALL_MIGRATIONS).close()
+        helper.runMigrationsAndValidate(dbName, 6, true, *QuipuDatabase.ALL_MIGRATIONS).close()
     }
 }

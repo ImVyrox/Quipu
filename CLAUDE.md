@@ -21,7 +21,7 @@ Instrucciones permanentes para trabajar en este repositorio. Quipu es una app An
 | androidx.test runner / ext-junit · room-testing (solo `androidTest`) | 1.6.2 / 1.2.1 · 2.6.1 |
 | JVM target | 17 (`sourceCompatibility`/`jvmTarget`) |
 | SDK | `minSdk 30` (Android 11), `targetSdk 35`, `compileSdk 35` |
-| App | `applicationId com.quipu.app`, `versionCode 2`, `versionName 1.1.0`; debug añade `.debug` / `-debug` |
+| App | `applicationId com.quipu.app`, `versionCode 4`, `versionName 1.3.0`; debug añade `.debug` / `-debug` |
 
 - Todas las dependencias se declaran en el catálogo `gradle/libs.versions.toml`; no pongas versiones sueltas en `build.gradle.kts`.
 - No añadas dependencias nuevas (ni Hilt, ni DataStore, ni librerías de red) sin pedirlo antes: el proyecto es deliberadamente pequeño. Nunca añadas el permiso `INTERNET`.
@@ -49,13 +49,13 @@ app/src/main/java/com/quipu/app/
                         próximo aviso), ReminderReceivers (ReminderReceiver, SystemEventsReceiver).
   ui/                   QuipuRoot (Scaffold + NavHost + NavigationBar), BaseViewModel, Formats,
                         theme/Theme.kt, components/Components.kt y una carpeta por pantalla:
-                        tasks/, money/ (Dinero: MoneyScreen, MoneyForms, GoalsUi, MoneyViewModel), finance/
+                        tasks/, money/ (Dinero: MoneyScreen, MoneyForms, GoalsUi, RecurringUi, MoneyViewModel), finance/
                         (préstamos), summary/, settings/ (Screen + ViewModel).
 app/src/test/java/com/quipu/app/          Pruebas unitarias JUnit 4 (domain/ y ui/Formats).
 app/src/androidTest/java/com/quipu/app/data/   Pruebas instrumentadas: MoneyRepositoryTest y
-                        SavingsRepositoryTest (Room) y MigrationTest (MigrationTestHelper con los
+                        SavingsRepositoryTest y RecurringRepositoryTest (Room) y MigrationTest (MigrationTestHelper con los
                         esquemas como assets).
-app/schemas/com.quipu.app.data.QuipuDatabase/   Esquemas Room exportados: 1.json … 5.json.
+app/schemas/com.quipu.app.data.QuipuDatabase/   Esquemas Room exportados: 1.json … 6.json.
 docs/finanzas-personales.md   Diseño y reglas del módulo de finanzas personales.
 ```
 
@@ -109,8 +109,8 @@ Objetivo: interfaz **moderna, minimalista y consistente**, pensada para teléfon
 
 Los datos del usuario solo existen en su teléfono: `allowBackup="false"`, sin nube. **Perder datos es irreversible.**
 
-- Base de datos `quipu.db`, `QuipuDatabase` versión **5**, `exportSchema = true`, esquemas en `app/schemas/` (KSP `room.schemaLocation`). Tablas: `tasks`, `debts`, `debt_payments`, `movements`, `income_sources`, `declared_balances`, `savings_goals`.
-- Historial: v1 → v2 (`MIGRATION_1_2`: columnas `isDaily`, `lastCompletedEpochDay` en `tasks`); v2 → v3 (`MIGRATION_2_3`: tabla `debt_payments` + índice `index_debt_payments_debtId`); v3 → v4 (`MIGRATION_3_4`: tablas `movements`, `income_sources`, `declared_balances` y sus índices; el SQL se copió de `4.json`); v4 → v5 (`MIGRATION_4_5`: tabla `savings_goals`).
+- Base de datos `quipu.db`, `QuipuDatabase` versión **6**, `exportSchema = true`, esquemas en `app/schemas/` (KSP `room.schemaLocation`). Tablas: `tasks`, `debts`, `debt_payments`, `movements`, `income_sources`, `declared_balances`, `savings_goals`, `recurring_payments`.
+- Historial: v1 → v2 (`MIGRATION_1_2`: columnas `isDaily`, `lastCompletedEpochDay` en `tasks`); v2 → v3 (`MIGRATION_2_3`: tabla `debt_payments` + índice `index_debt_payments_debtId`); v3 → v4 (`MIGRATION_3_4`: tablas `movements`, `income_sources`, `declared_balances` y sus índices; el SQL se copió de `4.json`); v4 → v5 (`MIGRATION_4_5`: tabla `savings_goals`); v5 → v6 (`MIGRATION_5_6`: tabla `recurring_payments`).
 - Registra cada migración nueva en `QuipuDatabase.ALL_MIGRATIONS` y añade un caso a `MigrationTest` (`runMigrationsAndValidate` compara con el JSON exportado).
 - Índices únicos de `movements`: (`incomeSourceId`, `period`) —un ingreso fijo por fuente y mes— y (`recurringPaymentId`, `period`) —un pago recurrente por mes—. No los quites: evitan duplicados aunque falle la validación de la app.
 - Para cualquier cambio en una `@Entity`:
@@ -123,6 +123,7 @@ Los datos del usuario solo existen en su teléfono: `allowBackup="false"`, sin n
 - Datos de demostración: siempre con `isDemo = true`; `removeDemoData()` (en ambos repositorios) borra solo esos (y sus abonos). Nunca mezcles datos demo con reales.
 - Finanzas personales: el saldo se calcula solo con movimientos no pendientes (`Ledger`); lo previsto y lo pendiente se muestran aparte. Cada movimiento guarda su moneda y nunca se suman monedas distintas (`CurrencyAmounts`). Los préstamos no afectan al saldo. No hay saldo inicial: el «dinero real declarado» (`declared_balances`) solo se compara, no crea movimientos. Una fuente con ingresos se archiva (`active = false`), no se borra. Ver `docs/finanzas-personales.md`.
 - Ahorros (política contable): total = disponible + ahorrado, por moneda. Aportar (`SAVING_DEPOSIT`) y retirar (`SAVING_WITHDRAWAL`) mueven dinero sin cambiar el total; una aportación no puede superar el disponible ni ir a un objetivo en pausa o completado, y un retiro no puede superar lo ahorrado. El ahorro inicial (`SAVING_OPENING`, uno por objetivo) suma al ahorro y al total sin ser ingreso. Lo acumulado **no se guarda**: se calcula con los movimientos (`Ledger.goalBalance`). Eliminar un objetivo registra antes un retiro de cierre (`Ledger.closingWithdrawal`) y su historial queda de solo lectura. Toda operación de ahorro se valida en `MoneyRepository` dentro de `withTransaction`.
+- Pagos recurrentes: los vencimientos **no se guardan**, se calculan con la regla (día, `RecurringFrequency` mensual/trimestral/semestral/anual, inicio y fin) en `RecurringPlanner`; si el mes es más corto vence su último día. Pagar = un gasto en `movements` con `recurringPaymentId` + `period` (mes del vencimiento), en la moneda original del pago y con la fecha efectiva elegida. `MoneyRepository.confirmRecurring` valida en `withTransaction` (confirmar dos veces devuelve `AlreadyPaid`) y el índice único lo respalda. Para no contar dos veces un gasto anotado a mano, el diálogo de pago ofrece vincularlo (`RecurringPlanner.manualMatches` + `linkRecurring`). Editar un gasto vinculado conserva el vínculo (`saveMovement`); un gasto nuevo nunca lo trae. Un pago en pausa (`active = false`) no genera pendientes ni avisos; borrar un pago no borra sus gastos. Cada pago tiene su propio recordatorio (`remindEnabled`, `remindLeadDays`, `remindMinuteOfDay`), integrado en `ReminderPlanner` (`ReminderKind.RECURRING`) bajo el interruptor general de recordatorios.
 - Integridad de abonos: un abono no puede superar lo que falta; si cubre el total, el registro pasa a `SETTLED`; solo se borran abonos de registros pendientes; al borrar un registro se borran sus abonos en la misma transacción. Mantén estas reglas en `QuipuRepository` dentro de `withTransaction`.
 - Actualiza el README (sección «Privacidad y datos») cuando añadas una versión de la base de datos.
 

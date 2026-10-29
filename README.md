@@ -36,6 +36,13 @@ Hecha con **Kotlin + Jetpack Compose (Material 3) + Room**.
   - **Aportar** pasa dinero de tu disponible al objetivo y **retirar** lo devuelve: tu dinero total no cambia. No puedes aportar más de lo que tienes disponible ni retirar más de lo ahorrado; un objetivo en pausa o completado no admite aportaciones.
   - **Ahorro inicial** (opcional y explícito): si ya tenías dinero guardado para esa meta fuera de Quipu, lo registras una vez. Suma al ahorro sin salir de tu disponible ni contar como ingreso.
   - Al **eliminar** un objetivo, lo ahorrado vuelve a tu disponible y su historial se conserva.
+- **Pagos recurrentes y suscripciones**: nombre, importe y moneda, frecuencia (mensual, trimestral, semestral o anual), fecha de inicio, día de vencimiento, categoría, descripción opcional y aviso propio. Ejemplo: Claude, 20 USD, el día 5 de cada mes desde noviembre.
+  - La lista muestra el próximo vencimiento de cada pago con su estado: **Pendiente**, **Vencido** o **En pausa**. El detalle muestra los próximos vencimientos y el historial de **pagos realizados**.
+  - **Pagar** registra un solo gasto, en la moneda original (no se convierte USD a BOB) y con la fecha real del pago. Confirmar dos veces el mismo mes no crea otro gasto.
+  - Si ya anotaste ese pago a mano como gasto, al pagar Quipu lo detecta y te deja **usar ese gasto** en vez de contarlo dos veces.
+  - Un pago pendiente **no reduce tu disponible** hasta que lo confirmas; lo que falta pagar en el mes aparece aparte, en «Previsto».
+  - Si el día no existe en un mes (31 en abril, 30 en febrero), vence el último día de ese mes.
+  - Se puede editar, pausar, reanudar y eliminar (sus pagos hechos se conservan en el historial). Borrar un pago realizado deja ese mes otra vez pendiente.
   - Arriba se ven el **disponible**, lo que tienes **en ahorros** y el **total**. El dinero real declarado se compara con el total.
 - **Monedas**: cada ingreso o gasto guarda su moneda. Las nuevas usan la moneda de Ajustes, pero puedes elegir otra. Los totales se muestran **por moneda**, sin sumar monedas distintas ni convertir.
 
@@ -71,6 +78,7 @@ Llegan aunque la app esté cerrada y se vuelven a programar solos tras reiniciar
 - **Tareas con fecha y hora**: aviso a la hora exacta o 5, 10, 15 o 30 minutos, 1, 2 o 3 horas, o 1 día antes (predeterminado: 30 minutos).
 - **Tareas diarias**: aviso a la hora que elijas (predeterminado: 20:00), solo si ese día todavía no la completaste.
 - **Préstamos y deudas** pendientes con vencimiento: aviso el mismo día o 1, 2, 3 o 7 días antes, a la hora que elijas (predeterminado: 1 día antes a las 09:00). Indica lo que falta por pagar o cobrar.
+- **Pagos recurrentes**: cada pago tiene su propio aviso (el mismo día o 1, 2, 3 o 7 días antes, a la hora que elijas; predeterminado: 1 día antes a las 09:00), solo si ese vencimiento sigue sin pagar. El interruptor general de Ajustes los apaga todos.
 
 ### Ajustes (⚙ en cualquier pantalla)
 
@@ -112,7 +120,7 @@ Probado en el emulador de Android Studio (teléfono mediano, Android API 37). En
   - `RECEIVE_BOOT_COMPLETED`: volver a programar los avisos tras reiniciar el teléfono.
 - Los datos se guardan solo en el teléfono, en una base de datos local (Room/SQLite).
 - `allowBackup=false`: los datos no se copian a la nube. **Si desinstalas la app, se pierden.**
-- Las actualizaciones de la app migran la base de datos sin borrar datos (la v2 añadió las tareas diarias, la v3 los abonos, la v4 los ingresos y gastos y la v5 los objetivos de ahorro, conservando todo lo anterior).
+- Las actualizaciones de la app migran la base de datos sin borrar datos (la v2 añadió las tareas diarias, la v3 los abonos, la v4 los ingresos y gastos, la v5 los objetivos de ahorro y la v6 los pagos recurrentes, conservando todo lo anterior).
 
 ### Que los avisos lleguen en Xiaomi/Redmi (MIUI/HyperOS)
 

@@ -4,7 +4,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 
-enum class ReminderKind { TASK, DAILY_TASK, DEBT }
+enum class ReminderKind { TASK, DAILY_TASK, DEBT, RECURRING }
 
 /**
  * Un aviso concreto. [key] identifica al elemento (no a la ocurrencia), así un mismo
@@ -15,6 +15,8 @@ data class Reminder(
     val kind: ReminderKind,
     val itemId: Long,
     val at: LocalDateTime,
+    /** Pagos recurrentes: el vencimiento del que se avisa. */
+    val dueDate: LocalDate? = null,
 )
 
 /**
@@ -25,13 +27,19 @@ data class Reminder(
  */
 object ReminderPlanner {
 
-    /** Avisos con hora en el intervalo (from, to], uno como máximo por elemento. */
+    /**
+     * Avisos con hora en el intervalo (from, to], uno como máximo por elemento. Los pagos
+     * recurrentes ([recurring], con sus [movements] para saber qué está pagado) usan el
+     * recordatorio de cada pago; el interruptor general ([ReminderSettings.enabled]) los apaga todos.
+     */
     fun dueBetween(
         tasks: List<TaskItem>,
         debts: List<DebtItem>,
         settings: ReminderSettings,
         from: LocalDateTime,
         to: LocalDateTime,
+        recurring: List<RecurringPayment> = emptyList(),
+        movements: List<Movement> = emptyList(),
     ): List<Reminder> {
         if (!settings.enabled || !to.isAfter(from)) return emptyList()
         fun inWindow(at: LocalDateTime) = at.isAfter(from) && !at.isAfter(to)
@@ -63,6 +71,11 @@ object ReminderPlanner {
                 if (inWindow(at)) result += Reminder("debt-${debt.id}", ReminderKind.DEBT, debt.id, at)
             }
         }
+
+        RecurringPlanner.remindersBetween(recurring, movements, from, to).forEach { o ->
+            val at = RecurringPlanner.reminderAt(o.dueDate, o.payment.reminder)
+            result += Reminder(o.key, ReminderKind.RECURRING, o.payment.id, at, o.dueDate)
+        }
         return result.sortedBy { it.at }
     }
 
@@ -72,6 +85,8 @@ object ReminderPlanner {
         debts: List<DebtItem>,
         settings: ReminderSettings,
         after: LocalDateTime,
+        recurring: List<RecurringPayment> = emptyList(),
+        movements: List<Movement> = emptyList(),
     ): LocalDateTime? {
         if (!settings.enabled) return null
         val candidates = mutableListOf<LocalDateTime>()
@@ -95,6 +110,7 @@ object ReminderPlanner {
                 .map { debtReminderAt(it, settings)!! }
                 .filterTo(candidates) { it.isAfter(after) }
         }
+        RecurringPlanner.nextReminderAfter(recurring, movements, after)?.let { candidates += it }
         return candidates.minOrNull()
     }
 
