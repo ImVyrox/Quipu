@@ -32,6 +32,46 @@ object Motivation {
         "Un objetivo de ahorro claro hace más fácil decir que no a un gasto impulsivo.",
     )
 
+    /**
+     * Consejos de hábitos financieros para los mensajes motivacionales. No afirman nada
+     * sobre los datos del usuario (eso lo hacen los mensajes de [candidates] con condición).
+     */
+    val HABITS = listOf(
+        "Revisa tus gastos de hoy y mantén el control de tu dinero.",
+        "Un pequeño ahorro hoy puede ayudarte a cumplir tu próximo objetivo.",
+        "Anotar cada gasto, aunque sea pequeño, te ayuda a saber a dónde va tu dinero.",
+        "Antes de comprar algo, espera un día: si mañana lo sigues queriendo, decídelo con calma.",
+        "Separar primero lo que quieres ahorrar hace más fácil cumplirlo.",
+        "Pequeños ahorros constantes suman más de lo que parece.",
+        "Revisar tus gastos unos minutos hoy evita sorpresas a fin de mes.",
+        "Un objetivo de ahorro claro hace más fácil decir que no a un gasto impulsivo.",
+    )
+
+    const val MANAGING_WELL = "Estás gestionando tus gastos correctamente. ¡Sigue así!"
+    const val UPCOMING_PAYMENTS = "Recuerda revisar los pagos que vencen próximamente."
+
+    /**
+     * Mensajes posibles hoy para una notificación motivacional: los consejos generales y,
+     * solo si los datos lo respaldan, los que hablan de su situación (objetivo cumplido o
+     * cerca, ahorro del mes, gastar menos de lo que ingresa, pagos que vencen pronto).
+     */
+    fun candidates(
+        goals: List<SavingsGoal>,
+        movements: List<Movement>,
+        today: LocalDate,
+        hasUpcomingPayments: Boolean,
+    ): List<String> {
+        val personal = pick(goals, movements, today)
+        return buildList {
+            addAll(HABITS)
+            if (personal.reason != MotivationReason.GENERIC) add(personal.text)
+            if (personal.reason == MotivationReason.SAVED_THIS_MONTH || personal.reason == MotivationReason.EARNED_MORE_THAN_SPENT) {
+                add(MANAGING_WELL)
+            }
+            if (hasUpcomingPayments) add(UPCOMING_PAYMENTS)
+        }.distinct()
+    }
+
     fun pick(
         goals: List<SavingsGoal>,
         movements: List<Movement>,

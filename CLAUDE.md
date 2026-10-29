@@ -17,11 +17,12 @@ Instrucciones permanentes para trabajar en este repositorio. Quipu es una app An
 | Core KTX / Core SplashScreen | 1.15.0 / 1.0.1 |
 | Room (runtime, ktx, compiler vía KSP) | 2.6.1 |
 | kotlinx-coroutines-android | 1.9.0 |
+| WorkManager (`work-runtime-ktx`, solo mensajes motivacionales) | 2.9.1 |
 | JUnit | 4.13.2 |
 | androidx.test runner / ext-junit · room-testing (solo `androidTest`) | 1.6.2 / 1.2.1 · 2.6.1 |
 | JVM target | 17 (`sourceCompatibility`/`jvmTarget`) |
 | SDK | `minSdk 30` (Android 11), `targetSdk 35`, `compileSdk 35` |
-| App | `applicationId com.quipu.app`, `versionCode 4`, `versionName 1.3.0`; debug añade `.debug` / `-debug` |
+| App | `applicationId com.quipu.app`, `versionCode 5`, `versionName 1.4.0`; debug añade `.debug` / `-debug` |
 
 - Todas las dependencias se declaran en el catálogo `gradle/libs.versions.toml`; no pongas versiones sueltas en `build.gradle.kts`.
 - No añadas dependencias nuevas (ni Hilt, ni DataStore, ni librerías de red) sin pedirlo antes: el proyecto es deliberadamente pequeño. Nunca añadas el permiso `INTERNET`.
@@ -45,8 +46,10 @@ app/src/main/java/com/quipu/app/
                         Mappers.kt (entidad <-> dominio), QuipuRepository.kt, SettingsStore.kt
                         (SharedPreferences "quipu_settings" expuestas como StateFlow), DemoData.kt.
                         Ingresos, gastos y ahorros: MoneyEntities.kt, MoneyDaos.kt, MoneyRepository.kt.
-  reminders/            QuipuNotifications (canal + publicar), ReminderEngine (alarma única del
-                        próximo aviso), ReminderReceivers (ReminderReceiver, SystemEventsReceiver).
+  reminders/            Dos sistemas separados. Recordatorios importantes: QuipuNotifications (canales +
+                        publicar), ReminderEngine (alarma única del próximo aviso), ReminderReceivers
+                        (ReminderReceiver, SystemEventsReceiver). Mensajes motivacionales:
+                        MotivationEngine + MotivationWorker (WorkManager), plan del día en SettingsStore.
   ui/                   QuipuRoot (Scaffold + NavHost + NavigationBar), BaseViewModel, Formats,
                         theme/Theme.kt, components/Components.kt y una carpeta por pantalla:
                         tasks/, money/ (Dinero: MoneyScreen, MoneyForms, GoalsUi, RecurringUi, MoneyViewModel), finance/
@@ -130,7 +133,10 @@ Los datos del usuario solo existen en su teléfono: `allowBackup="false"`, sin n
 ## Alarmas, notificaciones y permisos
 
 - Permisos declarados (y los únicos permitidos sin consultarlo): `POST_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`. Sin `INTERNET`.
-- **Una sola alarma**: `ReminderEngine` programa solo el próximo aviso (`REQUEST_CODE = 100`, `PendingIntent.FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT`). Al sonar, `sync()` publica lo que tocaba desde `lastReminderCheck` (como máximo `MAX_CATCH_UP_HOURS = 12` atrás) y reprograma el siguiente. No crees alarmas por elemento ni uses WorkManager sin acordarlo.
+- **Recordatorios importantes = una sola alarma** (`AlarmManager`): `ReminderEngine` programa solo el próximo aviso (`REQUEST_CODE = 100`, `PendingIntent.FLAG_IMMUTABLE or FLAG_UPDATE_CURRENT`). Al sonar, `sync()` publica **todos** los avisos que tocaban desde `lastReminderCheck` (como máximo `ReminderPlanner.CATCH_UP_HOURS = 26` atrás; las diarias de otro día se descartan con `stillRelevant`) y reprograma el siguiente. No crees alarmas por elemento.
+- **Por qué 26 h (limitación de «un aviso al día»)**: sin `SCHEDULE_EXACT_ALARM` la alarma es inexacta y cuenta para la cuota de App Standby; en los buckets «rare»/«restricted» (habituales en MIUI) Android solo permite **1 alarma al día** (`dumpsys alarm`: `standby_quota_restricted=1`, ventana 1 día) y difiere las demás ~24 h. Con el permiso concedido la alarma exacta suena a su hora aunque el bucket sea «restricted» (comprobado en el emulador). Ajustes muestra un aviso cuando falta el permiso; reinstalar la app (o `connectedDebugAndroidTest`) lo restablece a «no concedido».
+- **Mensajes motivacionales = WorkManager**, nunca alarmas exactas: `MotivationEngine` sortea cada día las horas (`MotivationPlanner`: horario, silencio, frecuencia de días, límite diario, separación mínima) y **guarda el plan** (`SettingsStore.motivationPlan`); abrir la app solo llama a `ensureScheduled` (`ExistingWorkPolicy.KEEP`), los cambios de ajustes a `replan` (`REPLACE`, sin superar lo ya usado hoy) y el worker encola la siguiente revisión con `APPEND_OR_REPLACE`. WorkManager restaura la tarea tras reiniciar; `SystemEventsReceiver` llama a `refresh` si cambia la hora. JobScheduler puede atrasar varios minutos un mensaje: si llega con más de `LATE_TOLERANCE_MINUTES` se da por perdido.
+- **Las notificaciones se separan por tag** (`QuipuNotifications.TAG_REMINDER` / `TAG_MOTIVATION`) y por canal (`reminders_v<n>` / `motivation_v<n>`): un mensaje nunca reemplaza ni cancela un recordatorio aunque coincida el id. Los recordatorios usan `key.hashCode()` como id (uno por elemento u ocurrencia); los mensajes, un id por día y hueco.
 - `sync()` está protegido con un `Mutex`; los receptores usan `goAsync()` + corrutina y siempre llaman a `pending.finish()` en `finally`. Mantén ese patrón.
 - La planificación (qué y cuándo avisar) es lógica pura en `domain/ReminderPlanner.kt` y está probada en `ReminderPlannerTest`. Cambios de reglas → primero ahí, con pruebas.
 - Alarmas exactas: comprueba siempre `ReminderEngine.canScheduleExact()` antes de `setExactAndAllowWhileIdle`; si no hay permiso, se usa `setAndAllowWhileIdle` (inexacta). Nunca asumas que el permiso está concedido (Android 12+ puede revocarlo).

@@ -80,6 +80,17 @@ Llegan aunque la app esté cerrada y se vuelven a programar solos tras reiniciar
 - **Préstamos y deudas** pendientes con vencimiento: aviso el mismo día o 1, 2, 3 o 7 días antes, a la hora que elijas (predeterminado: 1 día antes a las 09:00). Indica lo que falta por pagar o cobrar.
 - **Pagos recurrentes**: cada pago tiene su propio aviso (el mismo día o 1, 2, 3 o 7 días antes, a la hora que elijas; predeterminado: 1 día antes a las 09:00), solo si ese vencimiento sigue sin pagar. El interruptor general de Ajustes los apaga todos.
 
+**Si los avisos llegan tarde o solo uno al día**: es Android. Sin el permiso «Alarmas y recordatorios» la alarma de Quipu es inexacta y, si el sistema considera que usas poco la app (en Xiaomi pasa a menudo), solo le permite una alarma al día. Quipu entrega entonces todos los avisos atrasados juntos (hasta 26 h), pero para que lleguen a su hora concede el permiso desde ⚙ Ajustes → Permisos.
+
+### Mensajes motivacionales
+
+Aparte de los recordatorios (nunca los sustituyen, retrasan ni reemplazan):
+
+- Consejos al azar sobre hábitos financieros, por ejemplo «Revisa tus gastos de hoy y mantén el control de tu dinero.» o «Un pequeño ahorro hoy puede ayudarte a cumplir tu próximo objetivo.». Los mensajes sobre tu situación («Estás gestionando tus gastos correctamente», «Recuerda revisar los pagos que vencen próximamente») solo aparecen cuando tus datos lo respaldan.
+- Configurables en ⚙ Ajustes: activarlos o no, **límite diario** (1 a 5), **frecuencia** (todos los días, lunes a viernes, fines de semana o 3 veces por semana), **horario** (por defecto de 09:00 a 21:00) y **periodo de silencio**.
+- Cada día se eligen horas al azar dentro del horario y se guardan: abrir la app no genera mensajes nuevos. No se repite el mismo mensaje dos veces seguidas.
+- La hora es orientativa: Android puede atrasarlos unos minutos para ahorrar batería. Tienen su propio canal («Mensajes motivacionales»), que se puede silenciar desde Android sin afectar a los recordatorios.
+
 ### Ajustes (⚙ en cualquier pantalla)
 
 - **Tema**: igual que el sistema, claro u oscuro; **color principal** (verde azulado, azul, morado, naranja o rosa) o los colores del fondo de pantalla (Material You, Android 12+).

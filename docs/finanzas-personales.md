@@ -5,6 +5,7 @@ Estado:
 - **Fase 2**: ingresos, gastos, saldo y dinero declarado, implementados (Room v4, pantalla **Dinero**).
 - **Fase 3**: objetivos de ahorro, implementados (Room v5).
 - **Fase 4**: pagos recurrentes y suscripciones, con su recordatorio, implementados (Room v6).
+- **Fase 5**: notificaciones en dos sistemas: recordatorios importantes (alarma única) y mensajes motivacionales (WorkManager, `MotivationPlanner`). Sin cambios de base de datos.
 
 ## Principios
 
@@ -65,6 +66,7 @@ Pruebas: `IncomePlannerTest`, `LedgerTest`, `RecurringPlannerTest`, `MotivationT
 
 ### Recordatorios y mensajes
 - Avisos de pagos recurrentes sin pagar, `leadDays` antes a una hora del día, configurados **en cada pago** (`RecurringReminder`) y apagados todos por el interruptor general de recordatorios. Como mucho uno por pago en cada ventana. Usa claves `recurring-<id>-<yyyy-MM>`.
+- Mensajes motivacionales (fase 5): `Motivation.candidates` junta los consejos generales (`HABITS`) y, solo si los datos lo respaldan, el mensaje personal de `Motivation.pick`, «Estás gestionando tus gastos correctamente» (ahorro o ingresos mayores que gastos este mes) y «Recuerda revisar los pagos que vencen próximamente» (pago vencido o que vence en 7 días). `MotivationPlanner.pickMessage` elige al azar sin repetir el anterior.
 - `Motivation.pick` elige, por prioridad: objetivo cumplido → hito de 75/50/25 % → ahorro este mes → ingresos mayores que gastos en alguna moneda → mensaje genérico que rota cada día. Nunca suma monedas distintas.
 
 ## Modelo de datos

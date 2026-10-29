@@ -5,6 +5,9 @@ import com.quipu.app.domain.AccentColor
 import com.quipu.app.domain.AppCurrencies
 import com.quipu.app.domain.AppCurrency
 import com.quipu.app.domain.Appearance
+import com.quipu.app.domain.MotivationDays
+import com.quipu.app.domain.MotivationPlan
+import com.quipu.app.domain.MotivationSettings
 import com.quipu.app.domain.ReminderSettings
 import com.quipu.app.domain.ThemeMode
 import java.time.LocalDateTime
@@ -44,6 +47,9 @@ class SettingsStore(context: Context) {
 
     private val _sound = MutableStateFlow(readSound())
     val sound: StateFlow<NotificationSound> = _sound.asStateFlow()
+
+    private val _motivation = MutableStateFlow(readMotivation())
+    val motivation: StateFlow<MotivationSettings> = _motivation.asStateFlow()
 
     fun setCurrency(currency: AppCurrency) {
         prefs.edit().putString(KEY_CURRENCY, currency.code).apply()
@@ -88,6 +94,34 @@ class SettingsStore(context: Context) {
         _sound.value = saved
     }
 
+    fun setMotivation(value: MotivationSettings) {
+        prefs.edit()
+            .putBoolean(KEY_MOT_ENABLED, value.enabled)
+            .putInt(KEY_MOT_PER_DAY, value.perDay)
+            .putString(KEY_MOT_DAYS, value.days.name)
+            .putInt(KEY_MOT_WINDOW_START, value.windowStartMinute)
+            .putInt(KEY_MOT_WINDOW_END, value.windowEndMinute)
+            .putBoolean(KEY_MOT_QUIET, value.quietEnabled)
+            .putInt(KEY_MOT_QUIET_START, value.quietStartMinute)
+            .putInt(KEY_MOT_QUIET_END, value.quietEndMinute)
+            .apply()
+        _motivation.value = value
+    }
+
+    /** Plan guardado de mensajes motivacionales del día (para no volver a sortear al abrir la app). */
+    var motivationPlan: MotivationPlan?
+        get() = MotivationPlan.decode(prefs.getString(KEY_MOT_PLAN, null))
+        set(value) {
+            prefs.edit().putString(KEY_MOT_PLAN, value?.encode()).commit()
+        }
+
+    /** Último mensaje motivacional enviado, para no repetirlo seguido. */
+    var lastMotivationMessage: String?
+        get() = prefs.getString(KEY_MOT_LAST, null)
+        set(value) {
+            prefs.edit().putString(KEY_MOT_LAST, value).commit()
+        }
+
     /** Última vez que se revisaron los avisos pendientes (hora local), o null si nunca. */
     var lastReminderCheck: LocalDateTime?
         get() = prefs.getString(KEY_LAST_CHECK, null)?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
@@ -112,6 +146,20 @@ class SettingsStore(context: Context) {
             debtsEnabled = prefs.getBoolean(KEY_REM_DEBTS, d.debtsEnabled),
             debtLeadDays = prefs.getInt(KEY_REM_DEBT_DAYS, d.debtLeadDays),
             debtMinuteOfDay = prefs.getInt(KEY_REM_DEBT_MINUTE, d.debtMinuteOfDay),
+        )
+    }
+
+    private fun readMotivation(): MotivationSettings {
+        val d = MotivationSettings()
+        return MotivationSettings(
+            enabled = prefs.getBoolean(KEY_MOT_ENABLED, d.enabled),
+            perDay = prefs.getInt(KEY_MOT_PER_DAY, d.perDay),
+            days = enumOr(prefs.getString(KEY_MOT_DAYS, null), d.days),
+            windowStartMinute = prefs.getInt(KEY_MOT_WINDOW_START, d.windowStartMinute),
+            windowEndMinute = prefs.getInt(KEY_MOT_WINDOW_END, d.windowEndMinute),
+            quietEnabled = prefs.getBoolean(KEY_MOT_QUIET, d.quietEnabled),
+            quietStartMinute = prefs.getInt(KEY_MOT_QUIET_START, d.quietStartMinute),
+            quietEndMinute = prefs.getInt(KEY_MOT_QUIET_END, d.quietEndMinute),
         )
     }
 
@@ -145,5 +193,15 @@ class SettingsStore(context: Context) {
         const val KEY_VIBRATE = "vibrate"
         const val KEY_CHANNEL_VERSION = "channel_version"
         const val KEY_LAST_CHECK = "reminders_last_check"
+        const val KEY_MOT_ENABLED = "motivation_enabled"
+        const val KEY_MOT_PER_DAY = "motivation_per_day"
+        const val KEY_MOT_DAYS = "motivation_days"
+        const val KEY_MOT_WINDOW_START = "motivation_window_start"
+        const val KEY_MOT_WINDOW_END = "motivation_window_end"
+        const val KEY_MOT_QUIET = "motivation_quiet"
+        const val KEY_MOT_QUIET_START = "motivation_quiet_start"
+        const val KEY_MOT_QUIET_END = "motivation_quiet_end"
+        const val KEY_MOT_PLAN = "motivation_plan"
+        const val KEY_MOT_LAST = "motivation_last_message"
     }
 }

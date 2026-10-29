@@ -28,6 +28,24 @@ data class Reminder(
 object ReminderPlanner {
 
     /**
+     * Cuánto se recupera hacia atrás. Sin permiso de alarmas exactas, Android puede diferir
+     * la alarma hasta un día entero (cuota de App Standby «rare»/«restricted», habitual en
+     * Xiaomi): con 26 h los avisos atrasados llegan todos juntos en vez de perderse.
+     */
+    const val CATCH_UP_HOURS = 26L
+
+    /** Inicio de la ventana a revisar: la última revisión, pero no más de [CATCH_UP_HOURS] atrás. */
+    fun catchUpFrom(lastCheck: LocalDateTime?, now: LocalDateTime): LocalDateTime? =
+        lastCheck?.let { maxOf(it, now.minusHours(CATCH_UP_HOURS)) }
+
+    /**
+     * Si un aviso que llega tarde sigue teniendo sentido [today]. Una tarea diaria solo se
+     * recuerda el mismo día ("aún no completas … hoy"); el resto, aunque llegue tarde.
+     */
+    fun stillRelevant(reminder: Reminder, today: LocalDate): Boolean =
+        reminder.kind != ReminderKind.DAILY_TASK || reminder.at.toLocalDate() == today
+
+    /**
      * Avisos con hora en el intervalo (from, to], uno como máximo por elemento. Los pagos
      * recurrentes ([recurring], con sus [movements] para saber qué está pagado) usan el
      * recordatorio de cada pago; el interruptor general ([ReminderSettings.enabled]) los apaga todos.

@@ -17,7 +17,16 @@ import com.quipu.app.data.SoundMode
 /** Canal de avisos y publicación de notificaciones. */
 object QuipuNotifications {
     private const val CHANNEL_PREFIX = "reminders_v"
+    private const val MOTIVATION_PREFIX = "motivation_v"
     const val TEST_NOTIFICATION_ID = 1
+
+    /**
+     * Espacios de nombres de las notificaciones. Android identifica una notificación por
+     * (tag, id): con tags distintos, un mensaje motivacional nunca reemplaza ni cancela un
+     * recordatorio aunque coincida el id.
+     */
+    const val TAG_REMINDER = "reminder"
+    const val TAG_MOTIVATION = "motivation"
 
     fun canNotify(context: Context): Boolean = NotificationManagerCompat.from(context).areNotificationsEnabled()
 
@@ -53,6 +62,39 @@ object QuipuNotifications {
         return id
     }
 
+    /**
+     * Canal de los mensajes motivacionales: separado de los recordatorios (el usuario puede
+     * silenciarlo desde Android sin perder los avisos de vencimientos) y de prioridad normal,
+     * sin aparecer encima de la pantalla. Usa el mismo sonido y vibración elegidos.
+     */
+    fun ensureMotivationChannel(context: Context, sound: NotificationSound): String {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val id = MOTIVATION_PREFIX + sound.channelVersion
+        manager.notificationChannels
+            .filter { it.id.startsWith(MOTIVATION_PREFIX) && it.id != id }
+            .forEach { manager.deleteNotificationChannel(it.id) }
+        if (manager.getNotificationChannel(id) == null) {
+            val channel = NotificationChannel(id, "Mensajes motivacionales", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Consejos y ánimo sobre tus hábitos financieros"
+                enableVibration(sound.vibrate)
+                val attributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                when (sound.mode) {
+                    SoundMode.DEFAULT -> setSound(Settings.System.DEFAULT_NOTIFICATION_URI, attributes)
+                    SoundMode.SILENT -> setSound(null, null)
+                    SoundMode.CUSTOM -> setSound(
+                        sound.customUri?.let(Uri::parse) ?: Settings.System.DEFAULT_NOTIFICATION_URI,
+                        attributes,
+                    )
+                }
+            }
+            manager.createNotificationChannel(channel)
+        }
+        return id
+    }
+
     /** Publica un aviso si el usuario permite notificaciones; si no, no hace nada. */
     @SuppressLint("MissingPermission") // Se comprueba con canNotify().
     fun post(
@@ -62,9 +104,10 @@ object QuipuNotifications {
         title: String,
         text: String,
         finance: Boolean,
+        tag: String = TAG_REMINDER,
     ) {
         if (!canNotify(context)) return
-        val channelId = ensureChannel(context, sound)
+        val channelId = if (tag == TAG_MOTIVATION) ensureMotivationChannel(context, sound) else ensureChannel(context, sound)
         val open = context.packageManager.getLaunchIntentForPackage(context.packageName)
         val contentIntent = open?.let {
             PendingIntent.getActivity(context, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -74,11 +117,11 @@ object QuipuNotifications {
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(if (tag == TAG_MOTIVATION) NotificationCompat.CATEGORY_RECOMMENDATION else NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(if (tag == TAG_MOTIVATION) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(contentIntent)
             .setAutoCancel(true)
             .build()
-        NotificationManagerCompat.from(context).notify(id, notification)
+        NotificationManagerCompat.from(context).notify(tag, id, notification)
     }
 }

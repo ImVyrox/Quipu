@@ -81,6 +81,8 @@ import com.quipu.app.data.NotificationSound
 import com.quipu.app.data.SoundMode
 import com.quipu.app.domain.AccentColor
 import com.quipu.app.domain.AppCurrencies
+import com.quipu.app.domain.MotivationDays
+import com.quipu.app.domain.MotivationPlanner
 import com.quipu.app.domain.ReminderOptions
 import com.quipu.app.domain.ThemeMode
 import com.quipu.app.reminders.QuipuNotifications
@@ -91,7 +93,10 @@ import com.quipu.app.ui.components.SectionHeader
 import java.time.LocalTime
 
 /** Diálogos de la pantalla (uno a la vez). */
-private enum class SettingsDialog { THEME, TASK_LEAD, DAILY_TIME, DEBT_LEAD, DEBT_TIME, SOUND, CURRENCY }
+private enum class SettingsDialog {
+    THEME, TASK_LEAD, DAILY_TIME, DEBT_LEAD, DEBT_TIME, SOUND, CURRENCY,
+    MOT_PER_DAY, MOT_DAYS, MOT_START, MOT_END, MOT_QUIET_START, MOT_QUIET_END,
+}
 
 @Composable
 fun SettingsScreen(
@@ -150,6 +155,7 @@ fun SettingsScreen(
 
     val appearance = state.appearance
     val reminders = state.reminders
+    val motivation = state.motivation
     val sound = state.sound
 
     Scaffold(
@@ -205,6 +211,16 @@ fun SettingsScreen(
                         text = "Las notificaciones de Quipu están desactivadas: no verás los recordatorios.",
                         action = "Permitir notificaciones",
                         onAction = requestNotifications,
+                    )
+                }
+            }
+            if (reminders.enabled && !canExact) {
+                item {
+                    WarningCard(
+                        text = "Sin «Alarmas y recordatorios», Android puede retrasar tus avisos hasta un día y entregarlos juntos " +
+                            "(en Xiaomi pasa a menudo). Con el permiso llegan a su hora.",
+                        action = "Permitir alarmas exactas",
+                        onAction = { SystemSettings.openExactAlarmSettings(context) },
                     )
                 }
             }
@@ -268,6 +284,81 @@ fun SettingsScreen(
                                 onClick = { dialog = SettingsDialog.DEBT_TIME },
                                 indent = true,
                             )
+                        }
+                    }
+                }
+            }
+
+            // ---- Mensajes motivacionales ----
+            item { SectionHeader("Mensajes motivacionales") }
+            item {
+                SettingsCard {
+                    SwitchRow(
+                        title = "Mensajes motivacionales",
+                        detail = "Consejos y ánimo sobre tus hábitos financieros. Van aparte: no sustituyen ni retrasan los recordatorios.",
+                        checked = motivation.enabled,
+                        onChange = { on ->
+                            viewModel.setMotivation(motivation.copy(enabled = on))
+                            if (on && !canNotify) requestNotifications()
+                        },
+                    )
+                    if (motivation.enabled) {
+                        HorizontalDivider()
+                        SettingRow(
+                            title = "Límite diario",
+                            detail = if (motivation.perDay == 1) "Hasta 1 mensaje al día" else "Hasta ${motivation.perDay} mensajes al día",
+                            onClick = { dialog = SettingsDialog.MOT_PER_DAY },
+                        )
+                        SettingRow(
+                            title = "Frecuencia",
+                            detail = motivation.days.label,
+                            onClick = { dialog = SettingsDialog.MOT_DAYS },
+                        )
+                        HorizontalDivider()
+                        SettingRow(
+                            title = "Desde",
+                            detail = minuteLabel(motivation.windowStartMinute),
+                            onClick = { dialog = SettingsDialog.MOT_START },
+                        )
+                        SettingRow(
+                            title = "Hasta",
+                            detail = minuteLabel(motivation.windowEndMinute) + " · a una hora al azar dentro de este horario",
+                            onClick = { dialog = SettingsDialog.MOT_END },
+                        )
+                        HorizontalDivider()
+                        SwitchRow(
+                            title = "Periodo de silencio",
+                            detail = "Sin mensajes en ese rango (por ejemplo, la siesta o mientras estudias)",
+                            checked = motivation.quietEnabled,
+                            onChange = { viewModel.setMotivation(motivation.copy(quietEnabled = it)) },
+                        )
+                        if (motivation.quietEnabled) {
+                            SettingRow(
+                                title = "Silencio desde",
+                                detail = minuteLabel(motivation.quietStartMinute),
+                                onClick = { dialog = SettingsDialog.MOT_QUIET_START },
+                                indent = true,
+                            )
+                            SettingRow(
+                                title = "Silencio hasta",
+                                detail = minuteLabel(motivation.quietEndMinute),
+                                onClick = { dialog = SettingsDialog.MOT_QUIET_END },
+                                indent = true,
+                            )
+                        }
+                        if (MotivationPlanner.allowedMinutes(motivation).isEmpty()) {
+                            Text(
+                                "Con este horario y este silencio no queda ninguna hora para enviar mensajes.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        }
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            OutlinedButton(
+                                onClick = { if (canNotify) viewModel.sendTestMotivation() else requestNotifications() },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            ) { Text("Probar mensaje") }
                         }
                     }
                 }
@@ -480,6 +571,47 @@ fun SettingsScreen(
             onSelect = viewModel::setCurrency,
             onDismiss = { dialog = null },
         )
+        SettingsDialog.MOT_PER_DAY -> ChoiceDialog(
+            title = "Límite diario",
+            options = MotivationPlanner.PER_DAY_OPTIONS,
+            selected = motivation.perDay,
+            label = { if (it == 1) "1 mensaje al día" else "$it mensajes al día" },
+            onSelect = { viewModel.setMotivation(motivation.copy(perDay = it)) },
+            onDismiss = { dialog = null },
+        )
+        SettingsDialog.MOT_DAYS -> ChoiceDialog(
+            title = "Frecuencia",
+            options = MotivationDays.entries,
+            selected = motivation.days,
+            label = { it.label },
+            onSelect = { viewModel.setMotivation(motivation.copy(days = it)) },
+            onDismiss = { dialog = null },
+        )
+        SettingsDialog.MOT_START, SettingsDialog.MOT_END, SettingsDialog.MOT_QUIET_START, SettingsDialog.MOT_QUIET_END -> {
+            val current = dialog!!
+            val initial = when (current) {
+                SettingsDialog.MOT_START -> motivation.windowStartMinute
+                SettingsDialog.MOT_END -> motivation.windowEndMinute
+                SettingsDialog.MOT_QUIET_START -> motivation.quietStartMinute
+                else -> motivation.quietEndMinute
+            }
+            AppTimePickerDialog(
+                initial = timeOf(initial),
+                onDismiss = { dialog = null },
+                onConfirm = {
+                    val minute = it.hour * 60 + it.minute
+                    viewModel.setMotivation(
+                        when (current) {
+                            SettingsDialog.MOT_START -> motivation.copy(windowStartMinute = minute)
+                            SettingsDialog.MOT_END -> motivation.copy(windowEndMinute = minute)
+                            SettingsDialog.MOT_QUIET_START -> motivation.copy(quietStartMinute = minute)
+                            else -> motivation.copy(quietEndMinute = minute)
+                        },
+                    )
+                    dialog = null
+                },
+            )
+        }
         null -> Unit
     }
 }

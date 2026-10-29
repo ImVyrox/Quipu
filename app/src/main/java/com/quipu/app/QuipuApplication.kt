@@ -5,6 +5,7 @@ import com.quipu.app.data.MoneyRepository
 import com.quipu.app.data.QuipuDatabase
 import com.quipu.app.data.QuipuRepository
 import com.quipu.app.data.SettingsStore
+import com.quipu.app.reminders.MotivationEngine
 import com.quipu.app.reminders.ReminderEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,12 @@ class QuipuApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Mensajes motivacionales: solo asegura que haya una revisión pendiente (no sortea ni envía).
+        try {
+            MotivationEngine.ensureScheduled(this)
+        } catch (e: Exception) {
+            // Si WorkManager no está disponible, la app sigue funcionando sin estos mensajes.
+        }
         // Reprograma los avisos cada vez que cambian tareas, registros, pagos recurrentes
         // (o sus pagos, que son movimientos) o ajustes.
         appScope.launch {

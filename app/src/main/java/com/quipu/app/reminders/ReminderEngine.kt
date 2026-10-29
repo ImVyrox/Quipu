@@ -17,20 +17,25 @@ import com.quipu.app.domain.ReminderKind
 import com.quipu.app.domain.ReminderPlanner
 import com.quipu.app.domain.TaskItem
 import com.quipu.app.ui.Formats
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Programa los avisos con una sola alarma: la del próximo aviso. Cada vez que se
- * sincroniza (al cambiar datos o ajustes, al sonar la alarma, al reiniciar el
- * teléfono o cambiar la hora) publica los avisos que tocaban desde la última
- * revisión y vuelve a programar el siguiente.
+ * Recordatorios importantes (tareas, diarias, préstamos y pagos recurrentes) con una sola
+ * alarma: la del próximo aviso. Cada vez que se sincroniza (al cambiar datos o ajustes,
+ * al sonar la alarma, al reiniciar el teléfono o cambiar la hora) publica todos los avisos
+ * que tocaban desde la última revisión y vuelve a programar el siguiente.
+ *
+ * Con permiso de alarmas exactas, la alarma suena a su hora aunque Android tenga la app en
+ * un bucket de App Standby restringido. Sin él es inexacta y Android puede diferirla hasta
+ * un día (en «rare»/«restricted» solo permite una alarma diaria): por eso se recupera
+ * hasta [ReminderPlanner.CATCH_UP_HOURS] atrás y se entregan juntos los avisos atrasados.
+ * Los mensajes motivacionales van aparte ([MotivationEngine]) y nunca tocan esta alarma.
  */
 object ReminderEngine {
-    /** Si el teléfono estuvo apagado, solo se avisa de lo que tocaba en las últimas horas. */
-    private const val MAX_CATCH_UP_HOURS = 12L
     private const val REQUEST_CODE = 100
 
     private val mutex = Mutex()
@@ -44,12 +49,10 @@ object ReminderEngine {
         val (tasks, debts) = repository.snapshot()
         val (recurring, movements) = app.money.recurringSnapshot()
 
-        val last = settings.lastReminderCheck
-        if (last != null) {
-            val from = maxOf(last, now.minusHours(MAX_CATCH_UP_HOURS))
-            ReminderPlanner.dueBetween(tasks, debts, config, from, now, recurring, movements).forEach { reminder ->
-                notify(app, reminder, tasks, debts, recurring)
-            }
+        ReminderPlanner.catchUpFrom(settings.lastReminderCheck, now)?.let { from ->
+            ReminderPlanner.dueBetween(tasks, debts, config, from, now, recurring, movements)
+                .filter { ReminderPlanner.stillRelevant(it, now.toLocalDate()) }
+                .forEach { reminder -> notify(app, reminder, tasks, debts, recurring, now) }
         }
         settings.lastReminderCheck = now
         schedule(app, ReminderPlanner.nextAfter(tasks, debts, config, now, recurring, movements))
@@ -101,14 +104,21 @@ object ReminderEngine {
         tasks: List<TaskItem>,
         debts: List<DebtItem>,
         recurring: List<RecurringPayment>,
+        now: LocalDateTime,
     ) {
         val settings = app.repository.settings
-        val today = reminder.at.toLocalDate()
+        // Relativo a ahora, no a la hora prevista del aviso: si Android lo retrasó, el texto sigue siendo cierto.
+        val today = now.toLocalDate()
         val (title, text) = when (reminder.kind) {
             ReminderKind.TASK -> {
                 val task = tasks.firstOrNull { it.id == reminder.itemId } ?: return
                 val day = Formats.relativeDate(task.dueAt.toLocalDate(), today).lowercaseFirst()
-                "Tarea por vencer" to "«${task.title}» vence $day a las ${Formats.time(task.dueAt.toLocalTime())}."
+                val time = Formats.time(task.dueAt.toLocalTime())
+                if (task.dueAt.isBefore(now)) {
+                    "Tarea vencida" to "«${task.title}» venció $day a las $time."
+                } else {
+                    "Tarea por vencer" to "«${task.title}» vence $day a las $time."
+                }
             }
             ReminderKind.DAILY_TASK -> {
                 val task = tasks.firstOrNull { it.id == reminder.itemId } ?: return
@@ -117,11 +127,11 @@ object ReminderEngine {
             ReminderKind.DEBT -> {
                 val debt = debts.firstOrNull { it.id == reminder.itemId } ?: return
                 val amount = Money.format(debt.remainingMinor, settings.currency.value)
-                val due = Formats.relativeDate(debt.dueDate!!, today).lowercaseFirst()
+                val due = dueWords(debt.dueDate!!, today)
                 if (debt.type == DebtType.OWED_TO_ME) {
-                    "Cobro por vencer" to "${debt.personName} te debe $amount. Vence $due."
+                    "Cobro por vencer" to "${debt.personName} te debe $amount. $due."
                 } else {
-                    "Pago por vencer" to "Debes $amount a ${debt.personName}. Vence $due."
+                    "Pago por vencer" to "Debes $amount a ${debt.personName}. $due."
                 }
             }
             ReminderKind.RECURRING -> {
@@ -129,9 +139,8 @@ object ReminderEngine {
                 // En la moneda original del pago: nunca se convierte.
                 val amount = Money.format(payment.amountMinor, AppCurrencies.byCode(payment.currencyCode))
                 val dueDate = reminder.dueDate ?: return
-                val due = Formats.relativeDate(dueDate, today).lowercaseFirst()
                 val noun = if (payment.isSubscription) "Suscripción" else "Pago recurrente"
-                "$noun por vencer" to "${payment.name}: $amount. Vence $due."
+                "$noun por vencer" to "${payment.name}: $amount. ${dueWords(dueDate, today)}."
             }
         }
         QuipuNotifications.post(
@@ -142,6 +151,13 @@ object ReminderEngine {
             text = text,
             finance = reminder.kind == ReminderKind.DEBT || reminder.kind == ReminderKind.RECURRING,
         )
+    }
+
+    /** "Vence hoy", "Vence el 12 oct 2026" o, si ya pasó, "Venció ayer". */
+    private fun dueWords(due: LocalDate, today: LocalDate): String {
+        val day = Formats.relativeDate(due, today)
+        val words = if (day == Formats.date(due)) "el $day" else day.lowercaseFirst()
+        return (if (due.isBefore(today)) "Venció " else "Vence ") + words
     }
 
     /** "Hoy" -> "hoy", "Mañana" -> "mañana"; las fechas ("12 oct 2026") quedan igual. */

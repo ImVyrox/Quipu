@@ -167,4 +167,42 @@ class ReminderPlannerTest {
         assertEquals("El mismo día del vencimiento", ReminderOptions.debtLeadLabel(0))
         assertEquals("7 días antes", ReminderOptions.debtLeadLabel(7))
     }
+
+    // ---- Recuperación de avisos atrasados (alarma diferida por Android) ----
+
+    @Test
+    fun catchUp_deliversAllRemindersDeferredAlmostADay() {
+        val now = today.atTime(9, 0)
+        val last = today.minusDays(1).atTime(9, 30) // Android difirió la alarma ~23,5 h
+        val from = ReminderPlanner.catchUpFrom(last, now)!!
+        assertEquals(last, from)
+        val tasks = listOf(task(1, today.minusDays(1).atTime(15, 0)), task(2, today.minusDays(1).atTime(18, 0)))
+        val hits = due(tasks, from = from, to = now)
+        // Llegan los dos, no solo uno.
+        assertEquals(listOf("task-1", "task-2"), hits.map { it.key })
+    }
+
+    @Test
+    fun catchUp_isCappedAndNeedsAPreviousCheck() {
+        val now = today.atTime(9, 0)
+        assertEquals(now.minusHours(ReminderPlanner.CATCH_UP_HOURS), ReminderPlanner.catchUpFrom(now.minusDays(5), now))
+        assertNull(ReminderPlanner.catchUpFrom(null, now))
+    }
+
+    @Test
+    fun lateDailyReminderOfYesterdayIsDropped_othersKept() {
+        val yesterdayDaily = Reminder("daily-1", ReminderKind.DAILY_TASK, 1, today.minusDays(1).atTime(20, 0))
+        val todayDaily = yesterdayDaily.copy(at = today.atTime(20, 0))
+        val lateTask = Reminder("task-2", ReminderKind.TASK, 2, today.minusDays(1).atTime(20, 0))
+        assertTrue(!ReminderPlanner.stillRelevant(yesterdayDaily, today))
+        assertTrue(ReminderPlanner.stillRelevant(todayDaily, today))
+        assertTrue(ReminderPlanner.stillRelevant(lateTask, today))
+    }
+
+    @Test
+    fun severalRemindersAtTheSameMinuteAreAllDelivered() {
+        val debts = listOf(debt(1, due = today.plusDays(1)), debt(2, due = today.plusDays(1)), debt(3, due = today.plusDays(1)))
+        val hits = due(debts = debts, from = today.atTime(8, 59), to = today.atTime(9, 0))
+        assertEquals(listOf("debt-1", "debt-2", "debt-3"), hits.map { it.key })
+    }
 }
