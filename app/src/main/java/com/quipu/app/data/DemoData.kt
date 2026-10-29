@@ -128,8 +128,9 @@ object DemoData {
     }
 
     /**
-     * Suscripción de ejemplo en dólares: vence el día 5 de cada mes desde hace dos meses.
-     * El mes pasado ya está pagado (un gasto vinculado) y el actual queda pendiente.
+     * Suscripción de ejemplo en dólares: vence el día 5 de cada mes desde el mes pasado. Los
+     * vencimientos ya pasados están pagados (gastos vinculados), así el ejemplo muestra el
+     * próximo como pendiente en vez de una lista de vencidos.
      */
     fun recurringPayment(today: LocalDate): RecurringPaymentEntity = RecurringPaymentEntity(
         name = "Claude (ejemplo)",
@@ -137,7 +138,7 @@ object DemoData {
         currencyCode = "USD",
         dayOfMonth = 5,
         frequency = RecurringFrequency.MONTHLY,
-        startEpochDay = YearMonth.from(today).minusMonths(2).atDay(1).toEpochDay(),
+        startEpochDay = YearMonth.from(today).minusMonths(1).atDay(1).toEpochDay(),
         endEpochDay = null,
         category = ExpenseCategory.SUBSCRIPTIONS,
         description = "Plan mensual",
@@ -145,19 +146,21 @@ object DemoData {
     )
 
     fun recurringMovements(today: LocalDate, paymentId: Long): List<Movement> {
-        val lastMonth = YearMonth.from(today).minusMonths(1)
-        return listOf(
-            Movement(
-                id = 0,
-                type = MovementType.EXPENSE,
-                amountMinor = 2_000,
-                currencyCode = "USD",
-                date = lastMonth.atDay(5),
-                description = "Claude (ejemplo)",
-                category = ExpenseCategory.SUBSCRIPTIONS,
-                recurringPaymentId = paymentId,
-                period = lastMonth,
-            ),
-        )
+        val thisMonth = YearMonth.from(today)
+        return listOf(thisMonth.minusMonths(1), thisMonth)
+            .filter { !it.atDay(5).isAfter(today) }
+            .map { period ->
+                Movement(
+                    id = 0,
+                    type = MovementType.EXPENSE,
+                    amountMinor = 2_000,
+                    currencyCode = "USD",
+                    date = period.atDay(5),
+                    description = "Claude (ejemplo)",
+                    category = ExpenseCategory.SUBSCRIPTIONS,
+                    recurringPaymentId = paymentId,
+                    period = period,
+                )
+            }
     }
 }

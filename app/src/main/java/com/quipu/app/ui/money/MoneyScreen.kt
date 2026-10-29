@@ -707,10 +707,22 @@ private fun Figure(label: String, lines: List<Pair<String, Long>>, color: Color?
 @Composable
 private fun ForecastLine(label: String, amounts: CurrencyAmounts) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // La etiqueta se parte en líneas si hace falta; el importe nunca se corta.
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+        )
         Column(horizontalAlignment = Alignment.End) {
             amounts.nonZero().byCode.forEach { (code, minor) ->
-                Text(formatAmount(minor, code), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    formatAmount(minor, code),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
+                )
             }
         }
     }

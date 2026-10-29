@@ -1,15 +1,15 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package com.quipu.app.ui.money
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -169,10 +169,7 @@ internal fun ExpenseFormSheet(
     FormSheet(title = if (initial == null) "Nuevo gasto" else "Editar gasto", onDismiss = onDismiss) {
         AmountField("Importe", amountText, { amountText = it }, currencyCode, { currencyCode = it }, errors.amount)
         Text("Categoría", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ExpenseCategory.entries.forEach { c ->
                 FilterChip(selected = category == c, onClick = { category = c }, label = { Text(c.label) })
             }
@@ -259,10 +256,7 @@ internal fun IncomeFormSheet(
     FormSheet(title = if (initial == null) "Nuevo ingreso" else "Editar ingreso", onDismiss = onDismiss) {
         if (choices.isNotEmpty()) {
             Text("Fuente", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = sourceId == null, onClick = { sourceId = null }, label = { Text("Sin fuente") })
                 choices.forEach { s ->
                     FilterChip(

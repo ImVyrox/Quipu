@@ -159,8 +159,9 @@ MIUI cierra las apps en segundo plano de forma agresiva. Para que los recordator
 ### Por terminal
 
 ```bash
-./gradlew testDebugUnitTest   # pruebas unitarias
+./gradlew testDebugUnitTest   # pruebas unitarias (lógica de tareas, préstamos, dinero, ahorros, pagos y avisos)
 ./gradlew connectedDebugAndroidTest   # pruebas en emulador (base de datos y migraciones; al terminar desinstala la app de depuración)
+./gradlew lintDebug           # revisión estática de Android (informe en app/build/reports/)
 ./gradlew assembleDebug       # genera el APK
 ```
 

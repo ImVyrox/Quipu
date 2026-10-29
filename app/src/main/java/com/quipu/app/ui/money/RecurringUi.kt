@@ -1,15 +1,15 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package com.quipu.app.ui.money
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -191,7 +191,7 @@ internal fun RecurringFormSheet(
         )
         AmountField("Importe", amountText, { amountText = it }, currencyCode, { currencyCode = it }, errors.amount)
         Text("Frecuencia", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             RecurringFrequency.entries.forEach { f ->
                 FilterChip(selected = frequency == f, onClick = { frequency = f }, label = { Text(f.label) })
             }
@@ -227,7 +227,7 @@ internal fun RecurringFormSheet(
             color = if (errors.day != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text("Categoría", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ExpenseCategory.entries.forEach { c ->
                 FilterChip(selected = category == c, onClick = { category = c }, label = { Text(c.label) })
             }
@@ -236,7 +236,7 @@ internal fun RecurringFormSheet(
 
         SwitchRow("Recordarme antes de cada vencimiento", remind) { remind = it }
         if (remind) {
-            Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ReminderOptions.debtLeadDays.forEach { d ->
                     FilterChip(
                         selected = leadDays == d,

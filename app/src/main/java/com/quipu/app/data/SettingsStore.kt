@@ -1,5 +1,6 @@
 package com.quipu.app.data
 
+import android.annotation.SuppressLint
 import android.content.Context
 import com.quipu.app.domain.AccentColor
 import com.quipu.app.domain.AppCurrencies
@@ -108,9 +109,14 @@ class SettingsStore(context: Context) {
         _motivation.value = value
     }
 
-    /** Plan guardado de mensajes motivacionales del día (para no volver a sortear al abrir la app). */
+    /**
+     * Plan guardado de mensajes motivacionales del día (para no volver a sortear al abrir la app).
+     * Se escribe con commit(): el worker puede terminar y Android matar el proceso enseguida,
+     * y con apply() el plan (o el último mensaje) podría no llegar al disco y repetirse.
+     */
     var motivationPlan: MotivationPlan?
         get() = MotivationPlan.decode(prefs.getString(KEY_MOT_PLAN, null))
+        @SuppressLint("ApplySharedPref")
         set(value) {
             prefs.edit().putString(KEY_MOT_PLAN, value?.encode()).commit()
         }
@@ -118,6 +124,7 @@ class SettingsStore(context: Context) {
     /** Último mensaje motivacional enviado, para no repetirlo seguido. */
     var lastMotivationMessage: String?
         get() = prefs.getString(KEY_MOT_LAST, null)
+        @SuppressLint("ApplySharedPref")
         set(value) {
             prefs.edit().putString(KEY_MOT_LAST, value).commit()
         }

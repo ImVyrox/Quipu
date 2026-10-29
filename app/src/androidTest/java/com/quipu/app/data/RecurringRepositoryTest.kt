@@ -169,9 +169,10 @@ class RecurringRepositoryTest {
         val id = repo.saveRecurring(claude)
         val created = repo.confirmRecurring(id, november, LocalDate.of(2026, 11, 5), 2_000) as ConfirmResult.Created
         // El formulario de gasto no conoce el vínculo: guardar una edición no debe perderlo.
-        repo.saveMovement(created.movement.copy(amountMinor = 2_100, recurringPaymentId = null, period = null))
+        repo.saveMovement(created.movement.copy(amountMinor = 2_100, recurringPaymentId = null, period = null, pending = true))
         val stored = movements().single()
         assertEquals(2_100L, stored.amountMinor)
+        assertFalse(stored.pending)
         assertEquals(id, stored.recurringPaymentId)
         assertEquals(november, stored.period)
         // Y un gasto nuevo no puede colarse como pago recurrente.

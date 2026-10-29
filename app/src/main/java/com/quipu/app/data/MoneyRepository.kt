@@ -75,6 +75,9 @@ class MoneyRepository(
         val stored = if (movement.id == 0L) null else (movementDao.getById(movement.id) ?: return@withTransaction 0L)
         val keepsRecurring = movement.type == MovementType.EXPENSE && stored?.recurringPaymentId != null
         val clean = movement.copy(
+            // Un gasto que salda un pago recurrente está pagado: si volviera a "por pagar", el mes
+            // figuraría como pagado sin que el dinero cuente en el saldo.
+            pending = if (keepsRecurring) false else movement.pending,
             period = if (keepsRecurring) stored!!.period?.let(YearMonth::parse) else period,
             recurringPaymentId = if (keepsRecurring) stored!!.recurringPaymentId else null,
             category = if (movement.type == MovementType.EXPENSE) movement.category else null,

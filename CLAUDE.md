@@ -22,7 +22,7 @@ Instrucciones permanentes para trabajar en este repositorio. Quipu es una app An
 | androidx.test runner / ext-junit · room-testing (solo `androidTest`) | 1.6.2 / 1.2.1 · 2.6.1 |
 | JVM target | 17 (`sourceCompatibility`/`jvmTarget`) |
 | SDK | `minSdk 30` (Android 11), `targetSdk 35`, `compileSdk 35` |
-| App | `applicationId com.quipu.app`, `versionCode 5`, `versionName 1.4.0`; debug añade `.debug` / `-debug` |
+| App | `applicationId com.quipu.app`, `versionCode 6`, `versionName 1.4.1`; debug añade `.debug` / `-debug` |
 
 - Todas las dependencias se declaran en el catálogo `gradle/libs.versions.toml`; no pongas versiones sueltas en `build.gradle.kts`.
 - No añadas dependencias nuevas (ni Hilt, ni DataStore, ni librerías de red) sin pedirlo antes: el proyecto es deliberadamente pequeño. Nunca añadas el permiso `INTERNET`.
@@ -151,11 +151,13 @@ Los datos del usuario solo existen en su teléfono: `allowBackup="false"`, sin n
 
 Antes de dar un cambio por terminado:
 
-1. `./gradlew testDebugUnitTest` — todas las pruebas en verde. Toda lógica nueva o modificada en `domain/` lleva pruebas en `app/src/test/java/com/quipu/app/domain/` (JUnit 4, fechas fijas como `LocalDate.of(2026, 10, 25)`, nada de `now()` en las aserciones).
-2. `./gradlew assembleDebug` — compila sin errores ni advertencias nuevas.
-3. Si cambió una entidad: confirma que se generó el nuevo `app/schemas/.../<versión>.json` y que la app actualiza desde la versión anterior sin perder datos (instalar la versión previa, crear datos, instalar encima con `adb install -r`).
-4. Si cambió la UI: revisa claro y oscuro, al menos un acento distinto de TEAL, y la pantalla con teclado abierto.
-5. Informa con honestidad lo que no se pudo verificar (p. ej. sin SDK de Android o sin dispositivo).
+1. `./gradlew testDebugUnitTest` — todas las pruebas en verde (180 al cierre de la fase 6). Toda lógica nueva o modificada en `domain/` lleva pruebas en `app/src/test/java/com/quipu/app/domain/` (JUnit 4, fechas fijas como `LocalDate.of(2026, 10, 25)`, nada de `now()` en las aserciones).
+2. `./gradlew assembleDebug` — compila sin errores ni advertencias nuevas. La caché de Gradle oculta las advertencias del compilador: para verlas, `./gradlew compileDebugKotlin compileDebugUnitTestKotlin compileDebugAndroidTestKotlin --no-build-cache --rerun-tasks` (no debe aparecer ninguna línea `w:`).
+3. `./gradlew lintDebug` — sin errores (informe en `app/build/reports/lint-results-debug.html`). Advertencias conocidas y aceptadas: versiones más nuevas de dependencias/AGP (no se actualizan sin pedirlo), `allowBackup` obsoleto en Android 12+, carpeta `mipmap-anydpi-v26` y `AutoboxingStateCreation`. `ApplySharedPref` está suprimido a propósito en el plan motivacional.
+4. `./gradlew connectedDebugAndroidTest` en el emulador (Room, migraciones, ahorros y pagos recurrentes). **Desinstala la app al terminar**: nunca en el teléfono del usuario.
+5. Si cambió una entidad: confirma que se generó el nuevo `app/schemas/.../<versión>.json` y que la app actualiza desde la versión anterior sin perder datos (instalar la versión previa, crear datos, instalar encima con `adb install -r`).
+6. Si cambió la UI: revisa claro y oscuro, al menos un acento distinto de TEAL, la pantalla con teclado abierto y el ancho del Redmi Note 11 (`adb shell wm density 440`; al terminar, `adb shell wm density reset`). En formularios usa `FlowRow` para filas de chips (no scroll horizontal: la opción elegida podría quedar fuera de la pantalla); las filas de filtros de las listas sí pueden desplazarse.
+7. Informa con honestidad lo que no se pudo verificar (p. ej. sin SDK de Android o sin dispositivo).
 
 ## Otras reglas
 
